@@ -33,11 +33,24 @@ export interface ClaudeHookData {
     total_input_tokens: number;
     total_output_tokens: number;
     context_window_size: number;
+    used_percentage?: number | null;
+    remaining_percentage?: number | null;
     current_usage?: {
       input_tokens: number;
       output_tokens: number;
       cache_creation_input_tokens: number;
       cache_read_input_tokens: number;
+    };
+  };
+  exceeds_200k_tokens?: boolean;
+  rate_limits?: {
+    five_hour?: {
+      used_percentage: number;
+      resets_at: number;
+    };
+    seven_day?: {
+      used_percentage: number;
+      resets_at: number;
     };
   };
 }

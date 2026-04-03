@@ -1,3 +1,71 @@
+## [1.23.5](https://github.com/Owloops/claude-powerline/compare/v1.23.4...v1.23.5) (2026-04-02)
+
+
+### Bug Fixes
+
+* **docs:** replace per-theme screenshots with unified theme and style images ([74a52fd](https://github.com/Owloops/claude-powerline/commit/74a52fd69249f72e43ac6db2465b8b755240f3f2))
+
+## [1.23.4](https://github.com/Owloops/claude-powerline/compare/v1.23.3...v1.23.4) (2026-04-02)
+
+
+### Bug Fixes
+
+* **docs:** remove redundant features section from readme ([4a09117](https://github.com/Owloops/claude-powerline/commit/4a0911735cb7a24b08b84737229e01c2872c9962))
+
+## [1.23.3](https://github.com/Owloops/claude-powerline/compare/v1.23.2...v1.23.3) (2026-04-02)
+
+
+### Bug Fixes
+
+* **plugin:** verify binary before use and add theme previews ([848582f](https://github.com/Owloops/claude-powerline/commit/848582f9fe14cc4387659e4c8ba3152b2581e7ee))
+
+## [1.23.2](https://github.com/Owloops/claude-powerline/compare/v1.23.1...v1.23.2) (2026-04-02)
+
+
+### Bug Fixes
+
+* **docs:** correct plugin install commands in readme ([a4f6256](https://github.com/Owloops/claude-powerline/commit/a4f62569e62986473015fc69a8dd44cb2e328e4e))
+
+## [1.23.1](https://github.com/Owloops/claude-powerline/compare/v1.23.0...v1.23.1) (2026-04-02)
+
+
+### Bug Fixes
+
+* **plugin:** add marketplace.json for plugin discovery ([b99ea4e](https://github.com/Owloops/claude-powerline/commit/b99ea4e76ce114966efad10ba54f61f9fe8ae8f5))
+
+# [1.23.0](https://github.com/Owloops/claude-powerline/compare/v1.22.1...v1.23.0) (2026-04-02)
+
+
+### Features
+
+* **plugin:** add setup wizard with /powerline command ([249b8ae](https://github.com/Owloops/claude-powerline/commit/249b8ae68a6125ee2f8d974e147328b57a09bae0))
+
+## [1.22.1](https://github.com/Owloops/claude-powerline/compare/v1.22.0...v1.22.1) (2026-04-02)
+
+
+### Bug Fixes
+
+* **context:** prefer native used_percentage from hook data ([25dc1ec](https://github.com/Owloops/claude-powerline/commit/25dc1ec7663ffe17fd0663846283296b3bbb30a6))
+
+# [1.22.0](https://github.com/Owloops/claude-powerline/compare/v1.21.2...v1.22.0) (2026-04-01)
+
+
+### Bug Fixes
+
+* **style:** apply prettier formatting to rate limits changes ([dab2d78](https://github.com/Owloops/claude-powerline/commit/dab2d78836ec3895173819896e553fad6bcd0899))
+
+
+### Features
+
+* **segment:** add native rate limits support and weekly segment ([03e65d6](https://github.com/Owloops/claude-powerline/commit/03e65d6dfbeaa853026050ca86caa0ab42559c59))
+
+## [1.21.2](https://github.com/Owloops/claude-powerline/compare/v1.21.1...v1.21.2) (2026-03-30)
+
+
+### Bug Fixes
+
+* **pricing:** use actual cache pricing from litellm and drop legacy claude-3 models ([775ef07](https://github.com/Owloops/claude-powerline/commit/775ef074a866641526c498eafbaf4e2bbaf43733))
+
 ## [1.21.1](https://github.com/Owloops/claude-powerline/compare/v1.21.0...v1.21.1) (2026-03-23)
 
 

@@ -12,106 +12,30 @@
 
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge-flat.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 
-### Demo
-
 <img src="images/demo-tui.gif" alt="Claude Powerline TUI Mode Demo" width="600"/>
 
-_Live demonstration: real-time usage tracking, git integration, and theme showcase_
-
-<table>
-   <tr>
-      <td align="center">
-         <img src="images/claude-powerline-dark.png" width="500" alt="Dark Theme"><br>
-         <strong>Dark</strong>
-      </td>
-      <td align="center">
-         <img src="images/claude-powerline-light.png" width="500" alt="Light Theme"><br>
-         <strong>Light</strong>
-      </td>
-   </tr>
-   <tr>
-      <td align="center">
-         <img src="images/claude-powerline-nord.png" width="500" alt="Nord Theme"><br>
-         <strong>Nord</strong>
-      </td>
-      <td align="center">
-         <img src="images/claude-powerline-tokyo-night.png" width="500" alt="Tokyo Night Theme"><br>
-         <strong>Tokyo Night</strong>
-      </td>
-   </tr>
-   <tr>
-      <td align="center">
-         <img src="images/claude-powerline-rose-pine.png" width="500" alt="Rose Pine Theme"><br>
-         <strong>Rose Pine</strong>
-      </td>
-      <td align="center">
-         <img src="images/claude-powerline-custom.png" width="500" alt="Custom Theme"><br>
-         <em>Create your own!</em>
-      </td>
-   </tr>
-</table>
 </div>
-
-## Features
-
-<table>
-<tr>
-<td width="50%">
-
-**Real-time usage tracking**
-
-Monitor session costs, 5-hour billing windows, and daily budgets with percentage alerts.
-
-</td>
-<td width="50%">
-
-**Git integration**
-
-Branch status, commits ahead/behind, working tree changes, and repository info at a glance.
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-**6 built-in themes**
-
-Dark, light, nord, tokyo-night, rose-pine, and gruvbox themes with full custom color support.
-
-</td>
-<td width="50%">
-
-**Multiple styles**
-
-Minimal, powerline, capsule, and TUI panel display with unicode or ASCII character sets.
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-**Auto-wrap layout**
-
-Segments automatically wrap to new lines based on terminal width. No more cutoff.
-
-</td>
-<td width="50%">
-
-**Zero dependencies**
-
-Lightweight and fast with no external dependencies to install.
-
-</td>
-</tr>
-</table>
 
 ## Installation
 
-### Setup
-
 Requires Node.js 18+, Claude Code, and Git 2.0+. For best display, install a [Nerd Font](https://www.nerdfonts.com/) or use `--charset=text` for ASCII-only symbols.
 
-**1. Add to your Claude Code `settings.json`:**
+### Setup Wizard (Recommended)
+
+The interactive wizard walks you through theme, style, font, segment, and budget selection.
+
+```bash
+# run inside Claude Code, one at a time
+/plugin marketplace add Owloops/claude-powerline
+/plugin install claude-powerline@claude-powerline
+/powerline
+```
+
+The wizard writes `~/.claude/claude-powerline.json` and updates your `settings.json` automatically. Run `/powerline` again any time to reconfigure.
+
+### Manual Setup
+
+Add to your Claude Code `settings.json`:
 
 ```json
 {
@@ -122,15 +46,39 @@ Requires Node.js 18+, Claude Code, and Git 2.0+. For best display, install a [Ne
 }
 ```
 
-**2. Start a Claude session** - the statusline appears at the bottom during conversations.
+Start a Claude session and the statusline appears at the bottom. Using `npx` automatically downloads and runs the latest version without manual updates.
 
-![Claude Code with powerline](images/claude-interface-with-powerline.png)
+## Styles
 
-Using `npx` automatically downloads and runs the latest version without manual updates.
+<img src="images/claude-powerline-styles.png" alt="Claude Powerline Styles" width="700">
 
-## Usage
+## Themes
 
-Once added to Claude Code settings, the statusline runs automatically. For customization:
+<img src="images/claude-powerline-themes.png" alt="Claude Powerline Themes" width="700">
+
+6 built-in themes (dark, light, nord, tokyo-night, rose-pine, gruvbox) or [create your own](#configuration).
+
+<details>
+<summary><h2>Configuration</h2></summary>
+
+**Config locations** (in priority order):
+
+- `./.claude-powerline.json` - Project-specific
+- `~/.claude/claude-powerline.json` - User config
+- `~/.config/claude-powerline/config.json` - XDG standard
+
+**Override priority:** CLI flags > Environment variables > Config files > Defaults
+
+Config files reload automatically, no restart needed.
+
+**Get example config:**
+
+```bash
+curl -o ~/.claude/claude-powerline.json https://raw.githubusercontent.com/Owloops/claude-powerline/main/.claude-powerline.json
+```
+
+<details>
+<summary><strong>CLI Options and Environment Variables</strong></summary>
 
 **CLI Options** (both `--arg value` and `--arg=value` syntax supported):
 
@@ -157,49 +105,7 @@ export CLAUDE_POWERLINE_CONFIG=/path/to/config.json
 export CLAUDE_POWERLINE_DEBUG=1  # Enable debug logging
 ```
 
-## Styles
-
-<img src="images/claude-powerline-styles.png" alt="Claude Powerline Styles" width="600">
-
-### TUI Panel Mode
-
-The `tui` style renders a bordered panel with all available data in a responsive layout. Unlike other styles, TUI mode is **opinionated**: it always displays all data regardless of segment enable/disable configuration. Only theme, charset, and budget thresholds are respected.
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "npx -y @owloops/claude-powerline@latest --style=tui"
-  }
-}
-```
-
-The panel adapts to terminal width across three breakpoints:
-- **Wide** (80+ cols): metrics on one line, workspace and footer spread across columns
-- **Medium** (55-79 cols): metrics split across two lines, stacked footer
-- **Narrow** (<55 cols): fully stacked layout
-
-> [!NOTE]
-> Claude Code's internal progress indicators (spinner, context bar) may briefly overlap the TUI panel during tool calls. This is a limitation of the hook architecture and resolves once the tool call completes.
-
-## Configuration
-
-**Get example config:**
-
-```bash
-# Download full-featured example config
-curl -o ~/.claude/claude-powerline.json https://raw.githubusercontent.com/Owloops/claude-powerline/main/.claude-powerline.json
-```
-
-**Config locations** (in priority order):
-
-- `./.claude-powerline.json` - Project-specific
-- `~/.claude/claude-powerline.json` - User config
-- `~/.config/claude-powerline/config.json` - XDG standard
-
-**Override priority:** CLI flags → Environment variables → Config files → Defaults
-
-Config files reload automatically and no restart needed.
+</details>
 
 ### Segment Configuration
 
@@ -252,8 +158,179 @@ Config files reload automatically and no restart needed.
 
 **Symbols:**
 
-- Unicode: `⎇` Branch • `♯` SHA • `⌂` Tag • `⧇` Stash • `✓` Clean • `●` Dirty • `⚠` Conflicts • `↑3` Ahead • `↓2` Behind • `(+1 ~2 ?3)` Staged/Unstaged/Untracked
-- Text: `~` Branch • `#` SHA • `T` Tag • `S` Stash • `=` Clean • `*` Dirty • `!` Conflicts • `^3` Ahead • `v2` Behind • `(+1 ~2 ?3)` Staged/Unstaged/Untracked
+- Unicode: `⎇` Branch &#8226; `♯` SHA &#8226; `⌂` Tag &#8226; `⧇` Stash &#8226; `✓` Clean &#8226; `●` Dirty &#8226; `⚠` Conflicts &#8226; `↑3` Ahead &#8226; `↓2` Behind &#8226; `(+1 ~2 ?3)` Staged/Unstaged/Untracked
+- Text: `~` Branch &#8226; `#` SHA &#8226; `T` Tag &#8226; `S` Stash &#8226; `=` Clean &#8226; `*` Dirty &#8226; `!` Conflicts &#8226; `^3` Ahead &#8226; `v2` Behind &#8226; `(+1 ~2 ?3)` Staged/Unstaged/Untracked
+
+</details>
+
+<details>
+<summary><strong>Model</strong> - Shows current Claude model being used</summary>
+
+```json
+"model": {
+  "enabled": true
+}
+```
+
+**Symbols:** `✱` Model (unicode) &#8226; `M` Model (text)
+
+</details>
+
+<details>
+<summary><strong>Session</strong> - Shows real-time usage for current Claude conversation</summary>
+
+```json
+"session": {
+  "enabled": true,
+  "type": "tokens",
+  "costSource": "calculated"
+}
+```
+
+**Options:**
+
+- `type`: Display format - `cost` | `tokens` | `both` | `breakdown`
+- `costSource`: Cost calculation method - `calculated` (ccusage-style) | `official` (hook data)
+
+**Symbols:** `§` Session (unicode) &#8226; `S` Session (text)
+
+</details>
+
+<details>
+<summary><strong>Today</strong> - Shows total daily usage with budget monitoring</summary>
+
+```json
+"today": {
+  "enabled": true,
+  "type": "cost"
+}
+```
+
+**Options:**
+
+- `type`: Display format - `cost` | `tokens` | `both` | `breakdown`
+
+**Symbols:** `☉` Today (unicode) &#8226; `D` Today (text)
+
+</details>
+
+<details>
+<summary><strong>Context</strong> - Shows context window usage and auto-compact threshold</summary>
+
+```json
+"context": {
+  "enabled": true,
+  "showPercentageOnly": false,
+  "displayStyle": "text",
+  "autocompactBuffer": 33000
+}
+```
+
+**Options:**
+
+- `showPercentageOnly`: Show only percentage remaining (default: false)
+- `displayStyle`: Visual style for context display (default: `"text"`)
+- `autocompactBuffer`: Number of tokens reserved as the auto-compact trigger zone (default: `33000`). The usable percentage reflects how close you are to the point where compaction fires. Set to `0` if you have auto-compact disabled to show raw context usage instead
+- `percentageMode`: How to display the percentage. `"remaining"` counts down from 100% (context left), `"used"` counts up from 0% (context consumed). Default depends on display style: `"remaining"` for `text`, `"used"` for bar styles
+
+**Display Styles:**
+
+| Style | Filled | Empty | Example |
+|-------|--------|-------|---------|
+| `text` | -- | -- | `◔ 34,040 (79%)` |
+| `ball` | ─ | ─ | `─────●──── 50%` |
+| `bar` | ▓ | ░ | `▓▓▓▓▓░░░░░ 50%` |
+| `blocks` | █ | ░ | `█████░░░░░ 50%` |
+| `blocks-line` | █ | ─ | `█████───── 50%` |
+| `capped` | ━ | ┄ | `━━━━╸┄┄┄┄┄ 50%` |
+| `dots` | ● | ○ | `●●●●●○○○○○ 50%` |
+| `filled` | ■ | □ | `■■■■■□□□□□ 50%` |
+| `geometric` | ▰ | ▱ | `▰▰▰▰▰▱▱▱▱▱ 50%` |
+| `line` | ━ | ┄ | `━━━━━┄┄┄┄┄ 50%` |
+| `squares` | ◼ | ◻ | `◼◼◼◼◼◻◻◻◻◻ 50%` |
+
+**Symbols:** `◔` Context (unicode) &#8226; `C` Context (text)
+
+#### Model Context Limits
+
+Configure context window limits for different model types. Defaults to 200K tokens for all models.
+
+```json
+"modelContextLimits": {
+  "sonnet": 1000000,
+  "opus": 200000
+}
+```
+
+**Available Model Types:**
+
+- `sonnet`: Claude Sonnet models (3.5, 4, etc.)
+- `opus`: Claude Opus models
+- `default`: Fallback for unrecognized models (200K)
+
+**Note:** Sonnet 4's 1M context window is currently in beta for tier 4+ users. Set `"sonnet": 1000000` when you have access.
+
+</details>
+
+<details>
+<summary><strong>Block</strong> - Shows usage within current 5-hour billing window (Claude's rate limit period)</summary>
+
+```json
+"block": {
+  "enabled": true,
+  "type": "weighted",
+  "burnType": "cost",
+  "displayStyle": "text"
+}
+```
+
+**Options:**
+
+- `type`: Display format - `cost` | `tokens` | `both` | `time` | `weighted`
+- `burnType`: Burn rate display - `cost` | `tokens` | `both` | `none`
+- `displayStyle`: Visual style for utilization display (see table below). Only applies when native rate limit data is available.
+
+**Native Rate Limits:** When Claude Code provides `rate_limits` in its hook data (Claude.ai Pro/Max subscribers), the block segment displays the official 5-hour utilization percentage and reset countdown instead of transcript-based estimates. This is more accurate, accounts for cross-machine usage, and requires no disk I/O. When native data is unavailable (API users, older Claude Code versions), the segment falls back to transcript-based cost/token tracking.
+
+**Display Styles** (native mode only):
+
+| Style | Example |
+|-------|---------|
+| `text` (default) | `◱ 23% (4h 12m)` |
+| `bar` | `◱ ▪▪▫▫▫▫▫▫▫▫ 23% (4h 12m)` |
+| `blocks` | `◱ ██░░░░░░░░ 23% (4h 12m)` |
+| `blocks-line` | `◱ ██──────── 23% (4h 12m)` |
+| `capped` | `◱ ━╸┄┄┄┄┄┄┄┄ 23% (4h 12m)` |
+| `dots` | `◱ ●●○○○○○○○○ 23% (4h 12m)` |
+| `filled` | `◱ ■■□□□□□□□□ 23% (4h 12m)` |
+| `geometric` | `◱ ▰▰▱▱▱▱▱▱▱▱ 23% (4h 12m)` |
+| `line` | `◱ ━━┄┄┄┄┄┄┄┄ 23% (4h 12m)` |
+| `squares` | `◱ ◼◼◻◻◻◻◻◻◻◻ 23% (4h 12m)` |
+| `ball` | `◱ ──●─────── 23% (4h 12m)` |
+
+**Weighted Tokens:** In transcript mode, Opus tokens count 5x toward rate limits compared to Sonnet/Haiku tokens
+
+**Symbols:** `◱` Block (unicode) &#8226; `B` Block (text)
+
+</details>
+
+<details>
+<summary><strong>Weekly</strong> - Shows usage within 7-day rolling rate limit window</summary>
+
+```json
+"weekly": {
+  "enabled": true,
+  "displayStyle": "text"
+}
+```
+
+**Options:**
+
+- `displayStyle`: Visual style for utilization display - same options as the block segment (see table above)
+
+Only visible when Claude Code provides native `rate_limits.seven_day` data (Claude.ai Pro/Max subscribers). Hidden when the data is not available.
+
+**Symbols:** `◑` Weekly (unicode) &#8226; `W` Weekly (text)
 
 </details>
 
@@ -283,79 +360,23 @@ Config files reload automatically and no restart needed.
 
 **Symbols:**
 
-- Unicode: `⧖` Total API time • `Δ` Last response • `⧗` Session duration • `⟐` Messages • `+` Lines added • `-` Lines removed
-- Text: `R` Total API time • `L` Last response • `T` Session duration • `#` Messages • `+` Lines added • `-` Lines removed
+- Unicode: `⧖` Total API time &#8226; `Δ` Last response &#8226; `⧗` Session duration &#8226; `⟐` Messages &#8226; `+` Lines added &#8226; `-` Lines removed
+- Text: `R` Total API time &#8226; `L` Last response &#8226; `T` Session duration &#8226; `#` Messages &#8226; `+` Lines added &#8226; `-` Lines removed
 
 </details>
 
 <details>
-<summary><strong>Model</strong> - Shows current Claude model being used</summary>
+<summary><strong>Version</strong> - Shows Claude Code version</summary>
 
 ```json
-"model": {
+"version": {
   "enabled": true
 }
 ```
 
-**Symbols:** `✱` Model (unicode) • `M` Model (text)
+**Display:** `v1.0.81`
 
-</details>
-
-<details>
-<summary><strong>Context</strong> - Shows context window usage and auto-compact threshold</summary>
-
-```json
-"context": {
-  "enabled": true,
-  "showPercentageOnly": false,
-  "displayStyle": "text",
-  "autocompactBuffer": 33000
-}
-```
-
-**Options:**
-
-- `showPercentageOnly`: Show only percentage remaining (default: false)
-- `displayStyle`: Visual style for context display (default: `"text"`)
-- `autocompactBuffer`: Number of tokens reserved as the auto-compact trigger zone (default: `33000`). The usable percentage reflects how close you are to the point where compaction fires. Set to `0` if you have auto-compact disabled to show raw context usage instead
-- `percentageMode`: How to display the percentage. `"remaining"` counts down from 100% (context left), `"used"` counts up from 0% (context consumed). Default depends on display style: `"remaining"` for `text`, `"used"` for bar styles
-
-**Display Styles:**
-
-| Style | Filled | Empty | Example |
-|-------|--------|-------|---------|
-| `text` | — | — | `◔ 34,040 (79%)` |
-| `ball` | ─ | ─ | `─────●──── 50%` |
-| `bar` | ▓ | ░ | `▓▓▓▓▓░░░░░ 50%` |
-| `blocks` | █ | ░ | `█████░░░░░ 50%` |
-| `blocks-line` | █ | ─ | `█████───── 50%` |
-| `capped` | ━ | ┄ | `━━━━╸┄┄┄┄┄ 50%` |
-| `dots` | ● | ○ | `●●●●●○○○○○ 50%` |
-| `filled` | ■ | □ | `■■■■■□□□□□ 50%` |
-| `geometric` | ▰ | ▱ | `▰▰▰▰▰▱▱▱▱▱ 50%` |
-| `line` | ━ | ┄ | `━━━━━┄┄┄┄┄ 50%` |
-| `squares` | ◼ | ◻ | `◼◼◼◼◼◻◻◻◻◻ 50%` |
-
-**Symbols:** `◔` Context (unicode) • `C` Context (text)
-
-##### Model Context Limits
-
-Configure context window limits for different model types. Defaults to 200K tokens for all models.
-
-```json
-"modelContextLimits": {
-  "sonnet": 1000000,
-  "opus": 200000
-}
-```
-
-**Available Model Types:**
-
-- `sonnet`: Claude Sonnet models (3.5, 4, etc.)
-- `opus`: Claude Opus models
-- `default`: Fallback for unrecognized models (200K)
-
-**Note:** Sonnet 4's 1M context window is currently in beta for tier 4+ users. Set `"sonnet": 1000000` when you have access.
+**Symbols:** `◈` Version (unicode) &#8226; `V` Version (text)
 
 </details>
 
@@ -388,82 +409,7 @@ Configure context window limits for different model types. Defaults to 200K toke
 
 **Display:** `⌗ a1b2c3d4-...`
 
-**Symbols:** `⌗` Session ID (unicode) • `#` Session ID (text)
-
-</details>
-
-<details>
-<summary><strong>Version</strong> - Shows Claude Code version</summary>
-
-```json
-"version": {
-  "enabled": true
-}
-```
-
-**Display:** `v1.0.81`
-
-**Symbols:** `◈` Version (unicode) • `V` Version (text)
-
-</details>
-
-<details>
-<summary><strong>Session</strong> - Shows real-time usage for current Claude conversation</summary>
-
-```json
-"session": {
-  "enabled": true,
-  "type": "tokens",
-  "costSource": "calculated"
-}
-```
-
-**Options:**
-
-- `type`: Display format - `cost` | `tokens` | `both` | `breakdown`
-- `costSource`: Cost calculation method - `calculated` (ccusage-style) | `official` (hook data)
-
-**Symbols:** `§` Session (unicode) • `S` Session (text)
-
-</details>
-
-<details>
-<summary><strong>Block</strong> - Shows usage within current 5-hour billing window (Claude's rate limit period)</summary>
-
-```json
-"block": {
-  "enabled": true,
-  "type": "weighted",
-  "burnType": "cost"
-}
-```
-
-**Options:**
-
-- `type`: Display format - `cost` | `tokens` | `both` | `time` | `weighted`
-- `burnType`: Burn rate display - `cost` | `tokens` | `both` | `none`
-
-**Weighted Tokens:** Opus tokens count 5x toward rate limits compared to Sonnet/Haiku tokens
-
-**Symbols:** `◱` Block (unicode) • `B` Block (text)
-
-</details>
-
-<details>
-<summary><strong>Today</strong> - Shows total daily usage with budget monitoring</summary>
-
-```json
-"today": {
-  "enabled": true,
-  "type": "cost"
-}
-```
-
-**Options:**
-
-- `type`: Display format - `cost` | `tokens` | `both` | `breakdown`
-
-**Symbols:** `☉` Today (unicode) • `D` Today (text)
+**Symbols:** `⌗` Session ID (unicode) &#8226; `#` Session ID (text)
 
 </details>
 
@@ -485,11 +431,14 @@ Configure context window limits for different model types. Defaults to 200K toke
 
 Hidden when the variable is unset or empty.
 
-**Symbols:** `⚙` Env (unicode) • `$` Env (text)
+**Symbols:** `⚙` Env (unicode) &#8226; `$` Env (text)
 
 </details>
 
-### Budget Configuration
+### Advanced Configuration
+
+<details>
+<summary><strong>Budget Configuration</strong></summary>
 
 ```json
 "budget": {
@@ -505,12 +454,15 @@ Hidden when the variable is unset or empty.
 - `type`: Budget type - `cost` (USD) | `tokens` (for token-based limits)
 - `warningThreshold`: Warning threshold percentage (default: 80)
 
-**Indicators:** `25%` Normal • `+75%` Moderate (50-79%) • `!85%` Warning (80%+)
+**Indicators:** `25%` Normal &#8226; `+75%` Moderate (50-79%) &#8226; `!85%` Warning (80%+)
 
 > [!TIP]
 > Claude's rate limits consider multiple factors beyond tokens (message count, length, attachments, model). See [Anthropic's usage documentation](https://support.anthropic.com/en/articles/11014257-about-claude-s-max-plan-usage) for details.
 
-### Character Sets
+</details>
+
+<details>
+<summary><strong>Character Sets</strong></summary>
 
 Choose between Unicode symbols (requires Nerd Font) or ASCII text mode for maximum compatibility.
 
@@ -524,27 +476,22 @@ Choose between Unicode symbols (requires Nerd Font) or ASCII text mode for maxim
 
 **Options:**
 
-- `unicode` (default) - Uses Nerd Font icons and symbols (⎇, ✱, ●, ↑, ↓, etc.)
-- `text` - ASCII-only characters (~, M, *, ^, v, etc.) for terminals without Nerd Font
-
-**Combinations with styles:**
+- `unicode` (default) - Uses Nerd Font icons and symbols
+- `text` - ASCII-only characters for terminals without Nerd Font
 
 The charset setting works independently from separator styles, giving you 8 possible combinations:
+
 - `minimal` + `unicode` / `text` - No separators
 - `powerline` + `unicode` / `text` - Arrow separators (requires Nerd Font for unicode)
 - `capsule` + `unicode` / `text` - Rounded caps (requires Nerd Font for unicode)
 - `tui` + `unicode` / `text` - Bordered panel with rounded or ASCII box characters
 
-**CLI Usage:**
+</details>
 
-```bash
-claude-powerline --charset=text --style=minimal
-claude-powerline --charset=unicode --style=powerline
-```
+<details>
+<summary><strong>Layout: Auto-Wrap, Multi-line, and Padding</strong></summary>
 
-### Auto-Wrap
-
-Automatically wrap segments to new lines based on terminal width.
+**Auto-Wrap** (enabled by default):
 
 ```json
 {
@@ -554,11 +501,9 @@ Automatically wrap segments to new lines based on terminal width.
 }
 ```
 
-Segments flow naturally and wrap to new lines when they exceed the terminal width. The layout adjusts automatically when the terminal is resized. Enabled by default.
+Segments flow naturally and wrap to new lines when they exceed the terminal width.
 
-### Multi-line Layout
-
-Alternatively, manually organize segments across multiple lines.
+**Multi-line Layout** for manual control:
 
 ```json
 {
@@ -583,12 +528,7 @@ Alternatively, manually organize segments across multiple lines.
 }
 ```
 
-> [!NOTE]
-> Claude Code system messages may truncate long status lines. Use `autoWrap` or manual multi-line layouts to prevent segment cutoff.
-
-### Padding
-
-Control the spacing inside each segment.
+**Padding** - number of spaces on each side of segment text:
 
 ```json
 {
@@ -598,9 +538,15 @@ Control the spacing inside each segment.
 }
 ```
 
-The value is the number of spaces on each side of the text. Set to `0` for a compact look, `1` (default) for standard spacing, or higher for more breathing room.
+Set to `0` for compact, `1` (default) for standard spacing.
 
-### Colors & Themes
+> [!NOTE]
+> Claude Code system messages may truncate long status lines. Use `autoWrap` or manual multi-line layouts to prevent segment cutoff.
+
+</details>
+
+<details>
+<summary><strong>Colors and Custom Themes</strong></summary>
 
 Create custom themes and configure color compatibility:
 
@@ -620,7 +566,7 @@ Create custom themes and configure color compatibility:
 }
 ```
 
-**Color Options:** `bg` (hex, `transparent`, `none`) • `fg` (hex)
+**Color Options:** `bg` (hex, `transparent`, `none`) &#8226; `fg` (hex)
 
 **Compatibility Modes:** `auto` (default), `ansi`, `ansi256`, `truecolor`
 
@@ -637,15 +583,38 @@ Create custom themes and configure color compatibility:
 
 **Priority:** `FORCE_COLOR` overrides `NO_COLOR` (allowing color to be forced on even when NO_COLOR is set)
 
-## Performance
+</details>
+
+<details>
+<summary><strong>TUI Panel Mode</strong></summary>
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "npx -y @owloops/claude-powerline@latest --style=tui"
+  }
+}
+```
+
+The panel adapts to terminal width across three breakpoints:
+
+- **Wide** (80+ cols): metrics on one line, workspace and footer spread across columns
+- **Medium** (55-79 cols): metrics split across two lines, stacked footer
+- **Narrow** (<55 cols): fully stacked layout
+
+> [!NOTE]
+> Claude Code's internal progress indicators (spinner, context bar) may briefly overlap the TUI panel during tool calls. This is a limitation of the hook architecture and resolves once the tool call completes.
+
+</details>
+
+<details>
+<summary><strong>Performance</strong></summary>
 
 Execution times for different configurations:
 
 - **~80ms** default config (`directory`, `git`, `model`, `session`, `today`, `context`)
 - **~240ms** full-featured (all segments enabled)
-
-<details>
-<summary><strong>Detailed Segment Timings</strong></summary>
 
 | Segment     | Timing | Notes                                      |
 | ----------- | ------ | ------------------------------------------ |
@@ -662,15 +631,16 @@ Execution times for different configurations:
 
 **Benchmark:** `npm run benchmark:timing`
 
-</details>
-
-### Optimization Tips
+**Optimization Tips:**
 
 - **Global install:** `npm install -g` to avoid npx overhead
 - **Disable unused segments** for faster execution
 - **Cache cleanup:** Remove `~/.claude/powerline/` if needed
 
-## Custom Segments
+</details>
+
+<details>
+<summary><strong>Custom Segments (Shell Composition)</strong></summary>
 
 Extend the statusline using shell composition:
 
@@ -684,8 +654,12 @@ Extend the statusline using shell composition:
 }
 ```
 
-> [!NOTE]  
+> [!NOTE]
 > Use `tput` for colors: `setab <bg>` (background), `setaf <fg>` (foreground), `sgr0` (reset). Example: `echo "$(tput setab 4)$(tput setaf 15) text $(tput sgr0)"`. For complex logic, create a shell script with multiple commands, conditions, and variables.
+
+</details>
+
+</details>
 
 ## Contributing
 
