@@ -1,9 +1,30 @@
-import path from "node:path";
 import type { ClaudeHookData } from "../utils/claude";
 import type { PowerlineColors } from "../themes";
 import type { PowerlineConfig } from "../config/loader";
 import type { BlockInfo } from "./block";
-import { formatModelName, abbreviateFishStyle } from "../utils/formatters";
+import type {
+  UsageInfo,
+  TokenBreakdown,
+  GitInfo,
+  ContextInfo,
+  MetricsInfo,
+} from ".";
+import type { TodayInfo } from "./today";
+
+import path from "node:path";
+import {
+  formatModelName,
+  abbreviateFishStyle,
+  formatCost,
+  formatTokens,
+  formatTokenBreakdown,
+  formatTimeSince,
+  formatDuration,
+  formatLongTimeRemaining,
+  collapseHome,
+  minutesUntilReset,
+} from "../utils/formatters";
+import { getBudgetStatus } from "../utils/budget";
 
 export interface SegmentConfig {
   enabled: boolean;
@@ -102,25 +123,6 @@ export type AnySegmentConfig =
   | EnvSegmentConfig
   | WeeklySegmentConfig;
 
-import {
-  formatCost,
-  formatTokens,
-  formatTokenBreakdown,
-  formatTimeSince,
-  formatDuration,
-  formatLongTimeRemaining,
-  minutesUntilReset,
-} from "../utils/formatters";
-import { getBudgetStatus } from "../utils/budget";
-import type {
-  UsageInfo,
-  TokenBreakdown,
-  GitInfo,
-  ContextInfo,
-  MetricsInfo,
-} from ".";
-import type { TodayInfo } from "./today";
-
 export interface PowerlineSymbols {
   right: string;
   left: string;
@@ -206,18 +208,10 @@ export class SegmentRenderer {
       };
     }
 
-    const homeDir = process.env.HOME || process.env.USERPROFILE;
-    let displayDir = currentDir;
-    let displayProjectDir = projectDir;
-
-    if (homeDir) {
-      if (currentDir.startsWith(homeDir)) {
-        displayDir = currentDir.replace(homeDir, "~");
-      }
-      if (projectDir && projectDir.startsWith(homeDir)) {
-        displayProjectDir = projectDir.replace(homeDir, "~");
-      }
-    }
+    const displayDir = collapseHome(currentDir);
+    const displayProjectDir = projectDir
+      ? collapseHome(projectDir)
+      : projectDir;
 
     let dirName = this.getDisplayDirectoryName(displayDir, displayProjectDir);
 
@@ -531,7 +525,6 @@ export class SegmentRenderer {
   renderMetrics(
     metricsInfo: MetricsInfo | null,
     colors: PowerlineColors,
-    _blockInfo: BlockInfo | null,
     config?: MetricsSegmentConfig,
   ): SegmentData | null {
     if (!metricsInfo) {
@@ -620,19 +613,8 @@ export class SegmentRenderer {
     colors: PowerlineColors,
     config?: BlockSegmentConfig,
   ): SegmentData {
-    if (blockInfo.source === "native" && blockInfo.nativeUtilization !== null) {
-      return this.renderNativeBlock(blockInfo, colors, config);
-    }
-    return this.renderTranscriptBlock(blockInfo, colors, config);
-  }
-
-  private renderNativeBlock(
-    blockInfo: BlockInfo,
-    colors: PowerlineColors,
-    config?: BlockSegmentConfig,
-  ): SegmentData {
-    const pct = Math.round(blockInfo.nativeUtilization!);
-    const timeStr = this.formatBlockTimeRemaining(blockInfo.timeRemaining);
+    const pct = Math.round(blockInfo.nativeUtilization);
+    const timeStr = formatLongTimeRemaining(blockInfo.timeRemaining);
     const blockBudget = this.config.budget?.block;
     const warningThreshold = blockBudget?.warningThreshold ?? 80;
 
@@ -651,151 +633,6 @@ export class SegmentRenderer {
       bgColor,
       fgColor,
     };
-  }
-
-  private renderTranscriptBlock(
-    blockInfo: BlockInfo,
-    colors: PowerlineColors,
-    config?: BlockSegmentConfig,
-  ): SegmentData {
-    let displayText: string;
-
-    if (blockInfo.cost === null && blockInfo.tokens === null) {
-      displayText = "No active block";
-    } else {
-      const type = config?.type || "cost";
-      const burnType = config?.burnType;
-      const blockBudget = this.config.budget?.block;
-
-      const timeStr = this.formatBlockTimeRemaining(blockInfo.timeRemaining);
-
-      let mainContent: string;
-      switch (type) {
-        case "cost":
-          mainContent = this.formatUsageWithBudget(
-            blockInfo.cost,
-            null,
-            null,
-            "cost",
-            blockBudget?.amount,
-            blockBudget?.warningThreshold,
-            blockBudget?.type,
-          );
-          break;
-        case "tokens":
-          mainContent = this.formatUsageWithBudget(
-            null,
-            blockInfo.tokens,
-            null,
-            "tokens",
-            blockBudget?.amount,
-            blockBudget?.warningThreshold,
-            blockBudget?.type,
-          );
-          break;
-        case "weighted": {
-          const rateLimit =
-            blockBudget?.type === "tokens" ? blockBudget.amount : undefined;
-          const weightedDisplay = formatTokens(blockInfo.weightedTokens);
-          if (rateLimit && blockInfo.weightedTokens !== null) {
-            const rateLimitStatus = getBudgetStatus(
-              blockInfo.weightedTokens,
-              rateLimit,
-              blockBudget?.warningThreshold || 80,
-            );
-            mainContent = `${weightedDisplay}${rateLimitStatus.displayText}`;
-          } else {
-            mainContent = `${weightedDisplay} (weighted)`;
-          }
-          break;
-        }
-        case "both":
-          mainContent = this.formatUsageWithBudget(
-            blockInfo.cost,
-            blockInfo.tokens,
-            null,
-            "both",
-            blockBudget?.amount,
-            blockBudget?.warningThreshold,
-            blockBudget?.type,
-          );
-          break;
-        case "time":
-          mainContent = timeStr || "N/A";
-          break;
-        default:
-          mainContent = this.formatUsageWithBudget(
-            blockInfo.cost,
-            null,
-            null,
-            "cost",
-            blockBudget?.amount,
-            blockBudget?.warningThreshold,
-            blockBudget?.type,
-          );
-      }
-
-      let burnContent = "";
-      if (burnType && burnType !== "none") {
-        switch (burnType) {
-          case "cost": {
-            const costBurnRate =
-              blockInfo.burnRate !== null
-                ? blockInfo.burnRate < 1
-                  ? `${(blockInfo.burnRate * 100).toFixed(0)}¢/h`
-                  : `$${blockInfo.burnRate.toFixed(2)}/h`
-                : "N/A";
-            burnContent = ` | ${costBurnRate}`;
-            break;
-          }
-          case "tokens": {
-            const tokenBurnRate =
-              blockInfo.tokenBurnRate !== null
-                ? `${formatTokens(Math.round(blockInfo.tokenBurnRate))}/h`
-                : "N/A";
-            burnContent = ` | ${tokenBurnRate}`;
-            break;
-          }
-          case "both": {
-            const costBurn =
-              blockInfo.burnRate !== null
-                ? blockInfo.burnRate < 1
-                  ? `${(blockInfo.burnRate * 100).toFixed(0)}¢/h`
-                  : `$${blockInfo.burnRate.toFixed(2)}/h`
-                : "N/A";
-            const tokenBurn =
-              blockInfo.tokenBurnRate !== null
-                ? `${formatTokens(Math.round(blockInfo.tokenBurnRate))}/h`
-                : "N/A";
-            burnContent = ` | ${costBurn} / ${tokenBurn}`;
-            break;
-          }
-        }
-      }
-
-      if (type === "time") {
-        displayText = mainContent;
-      } else {
-        displayText = timeStr
-          ? `${mainContent}${burnContent} (${timeStr} left)`
-          : `${mainContent}${burnContent}`;
-      }
-    }
-
-    return {
-      text: `${this.symbols.block_cost} ${displayText}`,
-      bgColor: colors.blockBg,
-      fgColor: colors.blockFg,
-    };
-  }
-
-  private formatBlockTimeRemaining(
-    timeRemaining: number | null,
-  ): string | null {
-    if (timeRemaining === null) return null;
-    const hours = Math.floor(timeRemaining / 60);
-    const minutes = timeRemaining % 60;
-    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
   }
 
   renderWeekly(

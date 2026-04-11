@@ -1,3 +1,38 @@
+## [1.24.4](https://github.com/Owloops/claude-powerline/compare/v1.24.3...v1.24.4) (2026-04-08)
+
+
+### Bug Fixes
+
+* **block:** remove transcript fallback, use native rate limits only ([6697e5d](https://github.com/Owloops/claude-powerline/commit/6697e5dca6c58eaba06ab4ffb61771d96156a955))
+
+## [1.24.3](https://github.com/Owloops/claude-powerline/compare/v1.24.2...v1.24.3) (2026-04-08)
+
+
+### Bug Fixes
+
+* **tui:** remove hardcoded custom colors from templates and restrict part colors to custom theme ([2248025](https://github.com/Owloops/claude-powerline/commit/2248025e6a17916ed7b2d61a6b6ce7b6ef285cb3))
+
+## [1.24.2](https://github.com/Owloops/claude-powerline/compare/v1.24.1...v1.24.2) (2026-04-08)
+
+
+### Bug Fixes
+
+* **docs:** replace em dashes with standard punctuation in README ([10a516a](https://github.com/Owloops/claude-powerline/commit/10a516afa29b975d468058a6ef8d774853aab06a))
+
+## [1.24.1](https://github.com/Owloops/claude-powerline/compare/v1.24.0...v1.24.1) (2026-04-08)
+
+
+### Bug Fixes
+
+* **tui:** crash when custom theme has fg-only color entries ([04745a5](https://github.com/Owloops/claude-powerline/commit/04745a55e59e28965d01ce8faf11ba2f0c494ab9))
+
+# [1.24.0](https://github.com/Owloops/claude-powerline/compare/v1.23.5...v1.24.0) (2026-04-08)
+
+
+### Features
+
+* CSS Grid-like layout engine for TUI panels ([#76](https://github.com/Owloops/claude-powerline/issues/76)) ([776e377](https://github.com/Owloops/claude-powerline/commit/776e3776fec22d2a00d17e1b8cccd4d01a6b5c45))
+
 ## [1.23.5](https://github.com/Owloops/claude-powerline/compare/v1.23.4...v1.23.5) (2026-04-02)
 
 
