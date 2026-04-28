@@ -1,16 +1,29 @@
 import { BlockProvider } from "../src/segments/block";
 import { TodayProvider } from "../src/segments/today";
 import { SegmentRenderer } from "../src/segments/renderer";
+import { CacheTimerProvider } from "../src/segments/cacheTimer";
+import { formatCacheTimerElapsed } from "../src/utils/formatters";
 import {
   loadEntriesFromProjects,
   type ClaudeHookData,
 } from "../src/utils/claude";
-import { mkdirSync, rmSync } from "fs";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
 jest.mock("../src/utils/claude", () => ({
   loadEntriesFromProjects: jest.fn(),
+  getEffortLevel: (hookData: any) => {
+    const level = hookData?.effort?.level;
+    if (typeof level !== "string") return null;
+    const trimmed = level.trim();
+    return trimmed ? trimmed : null;
+  },
+  getThinkingEnabled: (hookData: any) => {
+    const enabled = hookData?.thinking?.enabled;
+    if (typeof enabled !== "boolean") return null;
+    return enabled;
+  },
 }));
 
 const mockLoadEntries = loadEntriesFromProjects as jest.MockedFunction<
@@ -257,6 +270,35 @@ describe("Segment Time Logic", () => {
 
       expect(result.text).toBe("~/r/d/s/components");
     });
+
+    it("should render original repo path in --worktree sessions", () => {
+      process.env.HOME = "/home/user";
+      const hookData: ClaudeHookData = {
+        hook_event_name: "Status",
+        session_id: "test",
+        transcript_path: "/tmp/test.json",
+        cwd: "/tmp/worktrees/some-task/src/components",
+        model: { id: "claude-3-5-sonnet", display_name: "Claude" },
+        workspace: {
+          current_dir: "/tmp/worktrees/some-task/src/components",
+          project_dir: "/tmp/worktrees/some-task",
+        },
+        worktree: {
+          name: "some-task",
+          path: "/tmp/worktrees/some-task",
+          branch: "feature/x",
+          original_cwd: "/home/user/repos/claude-powerline",
+          original_branch: "main",
+        },
+      };
+
+      const result = renderer.renderDirectory(hookData, colors, {
+        enabled: true,
+        style: "fish",
+      });
+
+      expect(result.text).toBe("~/r/claude-powerline");
+    });
   });
 
   describe("Version Segment", () => {
@@ -280,6 +322,127 @@ describe("Segment Time Logic", () => {
 
       expect(result).not.toBeNull();
       expect(result?.text).toContain("v1.0.80");
+    });
+  });
+
+  describe("Agent Segment", () => {
+    const config = { theme: "dark", display: { style: "minimal" } } as any;
+    const symbols = { agent: "◇" } as any;
+    const colors = { agentBg: "#2a2a4a", agentFg: "#b0a8e0" } as any;
+
+    it("should render agent name when present", () => {
+      const renderer = new SegmentRenderer(config, symbols);
+      const hookData: ClaudeHookData = {
+        hook_event_name: "Status",
+        session_id: "test",
+        transcript_path: "/tmp/test.json",
+        cwd: "/test",
+        model: { id: "claude-sonnet-4-6", display_name: "Sonnet" },
+        workspace: { current_dir: "/test", project_dir: "/test" },
+        agent: { name: "researcher" },
+      };
+
+      const result = renderer.renderAgent(hookData, colors, { enabled: true });
+      expect(result).not.toBeNull();
+      expect(result!.text).toBe("◇ researcher");
+      expect(result!.bgColor).toBe(colors.agentBg);
+      expect(result!.fgColor).toBe(colors.agentFg);
+    });
+
+    it("should return null when agent is absent or name is blank", () => {
+      const renderer = new SegmentRenderer(config, symbols);
+      const base: ClaudeHookData = {
+        hook_event_name: "Status",
+        session_id: "test",
+        transcript_path: "/tmp/test.json",
+        cwd: "/test",
+        model: { id: "claude-sonnet-4-6", display_name: "Sonnet" },
+        workspace: { current_dir: "/test", project_dir: "/test" },
+      };
+
+      expect(renderer.renderAgent(base, colors, { enabled: true })).toBeNull();
+      expect(
+        renderer.renderAgent(
+          { ...base, agent: { name: "   " } },
+          colors,
+          { enabled: true },
+        ),
+      ).toBeNull();
+    });
+  });
+
+  describe("Thinking Segment", () => {
+    const config = { theme: "dark", display: { style: "minimal" } } as any;
+    const symbols = { thinking: "✦" } as any;
+    const colors = {
+      thinkingBg: "#2a2a3a",
+      thinkingFg: "#c792ea",
+    } as any;
+
+    const base: ClaudeHookData = {
+      hook_event_name: "Status",
+      session_id: "test",
+      transcript_path: "/tmp/test.json",
+      cwd: "/test",
+      model: { id: "claude-sonnet-4-6", display_name: "Sonnet" },
+      workspace: { current_dir: "/test", project_dir: "/test" },
+    };
+
+    type Case = {
+      name: string;
+      hook: Partial<ClaudeHookData>;
+      cfg: { showEnabled?: boolean; showEffort?: boolean };
+      expected: string | null;
+    };
+
+    const cases: Case[] = [
+      {
+        name: "both parts enabled, both fields present -> uses separator",
+        hook: { effort: { level: "xhigh" }, thinking: { enabled: true } },
+        cfg: { showEnabled: true, showEffort: true },
+        expected: "✦ On · xhigh",
+      },
+      {
+        name: "only showEnabled, thinking.enabled=false -> no separator",
+        hook: { thinking: { enabled: false } },
+        cfg: { showEnabled: true, showEffort: false },
+        expected: "✦ Off",
+      },
+      {
+        name: "both flags true but only effort present -> no separator",
+        hook: { effort: { level: "xhigh" } },
+        cfg: { showEnabled: true, showEffort: true },
+        expected: "✦ xhigh",
+      },
+      {
+        name: "both flags true, hookData empty -> null",
+        hook: {},
+        cfg: { showEnabled: true, showEffort: true },
+        expected: null,
+      },
+      {
+        name: "both flags false -> null",
+        hook: { effort: { level: "high" }, thinking: { enabled: true } },
+        cfg: { showEnabled: false, showEffort: false },
+        expected: null,
+      },
+    ];
+
+    it.each(cases)("$name", ({ hook, cfg, expected }) => {
+      const renderer = new SegmentRenderer(config, symbols);
+      const result = renderer.renderThinking(
+        { ...base, ...hook } as ClaudeHookData,
+        colors,
+        { enabled: true, ...cfg },
+      );
+      if (expected === null) {
+        expect(result).toBeNull();
+      } else {
+        expect(result).not.toBeNull();
+        expect(result!.text).toBe(expected);
+        expect(result!.bgColor).toBe(colors.thinkingBg);
+        expect(result!.fgColor).toBe(colors.thinkingFg);
+      }
     });
   });
 
@@ -369,12 +532,18 @@ describe("Segment Time Logic", () => {
     });
 
     it("should render session id with label when showIdLabel is true", () => {
-      const result = renderer.renderSessionId(sessionId, colors, { enabled: true, showIdLabel: true });
+      const result = renderer.renderSessionId(sessionId, colors, {
+        enabled: true,
+        showIdLabel: true,
+      });
       expect(result.text).toBe(`⌗ ${sessionId}`);
     });
 
     it("should render session id without label when showIdLabel is false", () => {
-      const result = renderer.renderSessionId(sessionId, colors, { enabled: true, showIdLabel: false });
+      const result = renderer.renderSessionId(sessionId, colors, {
+        enabled: true,
+        showIdLabel: false,
+      });
       expect(result.text).toBe(sessionId);
     });
 
@@ -437,18 +606,33 @@ describe("Segment Time Logic", () => {
     });
 
     it("should render native block data with text style", () => {
-      const config = { theme: "dark", display: { style: "minimal" }, budget: { block: { warningThreshold: 80 } } } as any;
-      const symbols = { block_cost: "◱", bar_filled: "▪", bar_empty: "▫" } as any;
+      const config = {
+        theme: "dark",
+        display: { style: "minimal" },
+        budget: { block: { warningThreshold: 80 } },
+      } as any;
+      const symbols = {
+        block_cost: "◱",
+        bar_filled: "▪",
+        bar_empty: "▫",
+      } as any;
       const colors = {
-        blockBg: "#2a2a2a", blockFg: "#87ceeb",
-        contextWarningBg: "#92400e", contextWarningFg: "#fbbf24",
-        contextCriticalBg: "#991b1b", contextCriticalFg: "#fca5a5",
+        blockBg: "#2a2a2a",
+        blockFg: "#87ceeb",
+        contextWarningBg: "#92400e",
+        contextWarningFg: "#fbbf24",
+        contextCriticalBg: "#991b1b",
+        contextCriticalFg: "#fca5a5",
       } as any;
 
       const renderer = new SegmentRenderer(config, symbols);
       const blockInfo = { nativeUtilization: 35, timeRemaining: 180 };
 
-      const result = renderer.renderBlock(blockInfo, colors, { enabled: true, type: "cost", displayStyle: "text" });
+      const result = renderer.renderBlock(blockInfo, colors, {
+        enabled: true,
+        type: "cost",
+        displayStyle: "text",
+      });
       expect(result.text).toContain("◱");
       expect(result.text).toContain("35%");
       expect(result.text).toContain("3h");
@@ -456,43 +640,67 @@ describe("Segment Time Logic", () => {
     });
 
     it("should render native block with bar display style", () => {
-      const config = { theme: "dark", display: { style: "minimal" }, budget: { block: { warningThreshold: 80 } } } as any;
-      const symbols = { block_cost: "◱", bar_filled: "▪", bar_empty: "▫" } as any;
+      const config = {
+        theme: "dark",
+        display: { style: "minimal" },
+        budget: { block: { warningThreshold: 80 } },
+      } as any;
+      const symbols = {
+        block_cost: "◱",
+        bar_filled: "▪",
+        bar_empty: "▫",
+      } as any;
       const colors = {
-        blockBg: "#2a2a2a", blockFg: "#87ceeb",
-        contextWarningBg: "#92400e", contextWarningFg: "#fbbf24",
-        contextCriticalBg: "#991b1b", contextCriticalFg: "#fca5a5",
+        blockBg: "#2a2a2a",
+        blockFg: "#87ceeb",
+        contextWarningBg: "#92400e",
+        contextWarningFg: "#fbbf24",
+        contextCriticalBg: "#991b1b",
+        contextCriticalFg: "#fca5a5",
       } as any;
 
       const renderer = new SegmentRenderer(config, symbols);
       const blockInfo = { nativeUtilization: 50, timeRemaining: 60 };
 
-      const result = renderer.renderBlock(blockInfo, colors, { enabled: true, type: "cost", displayStyle: "bar" });
+      const result = renderer.renderBlock(blockInfo, colors, {
+        enabled: true,
+        type: "cost",
+        displayStyle: "bar",
+      });
       expect(result.text).toContain("▪");
       expect(result.text).toContain("▫");
       expect(result.text).toContain("50%");
     });
 
     it("should apply warning colors when native utilization >= 50%", () => {
-      const config = { theme: "dark", display: { style: "minimal" }, budget: { block: { warningThreshold: 80 } } } as any;
+      const config = {
+        theme: "dark",
+        display: { style: "minimal" },
+        budget: { block: { warningThreshold: 80 } },
+      } as any;
       const symbols = { block_cost: "◱" } as any;
       const colors = {
-        blockBg: "#2a2a2a", blockFg: "#87ceeb",
-        contextWarningBg: "#92400e", contextWarningFg: "#fbbf24",
-        contextCriticalBg: "#991b1b", contextCriticalFg: "#fca5a5",
+        blockBg: "#2a2a2a",
+        blockFg: "#87ceeb",
+        contextWarningBg: "#92400e",
+        contextWarningFg: "#fbbf24",
+        contextCriticalBg: "#991b1b",
+        contextCriticalFg: "#fca5a5",
       } as any;
 
       const renderer = new SegmentRenderer(config, symbols);
 
       const at60 = renderer.renderBlock(
         { nativeUtilization: 60, timeRemaining: 120 },
-        colors, { enabled: true, type: "cost" },
+        colors,
+        { enabled: true, type: "cost" },
       );
       expect(at60.bgColor).toBe(colors.contextWarningBg);
 
       const at90 = renderer.renderBlock(
         { nativeUtilization: 90, timeRemaining: 30 },
-        colors, { enabled: true, type: "cost" },
+        colors,
+        { enabled: true, type: "cost" },
       );
       expect(at90.bgColor).toBe(colors.contextCriticalBg);
     });
@@ -503,9 +711,12 @@ describe("Segment Time Logic", () => {
       const config = { theme: "dark", display: { style: "minimal" } } as any;
       const symbols = { weekly_cost: "◑" } as any;
       const colors = {
-        weeklyBg: "#2a2a3a", weeklyFg: "#a0c4e8",
-        contextWarningBg: "#92400e", contextWarningFg: "#fbbf24",
-        contextCriticalBg: "#991b1b", contextCriticalFg: "#fca5a5",
+        weeklyBg: "#2a2a3a",
+        weeklyFg: "#a0c4e8",
+        contextWarningBg: "#92400e",
+        contextWarningFg: "#fbbf24",
+        contextCriticalBg: "#991b1b",
+        contextCriticalFg: "#fca5a5",
       } as any;
 
       const renderer = new SegmentRenderer(config, symbols);
@@ -592,17 +803,27 @@ describe("Segment Time Logic", () => {
     });
 
     it("should use bar_filled/bar_empty symbols for 'bar' style and BAR_STYLES chars for custom styles", () => {
-      const bar = renderer.renderContext(mkContext(50), colors, { enabled: true, displayStyle: "bar" });
+      const bar = renderer.renderContext(mkContext(50), colors, {
+        enabled: true,
+        displayStyle: "bar",
+      });
       expect(bar!.text).toContain("▪");
       expect(bar!.text).toContain("▫");
 
-      const blocks = renderer.renderContext(mkContext(50), colors, { enabled: true, displayStyle: "blocks" });
+      const blocks = renderer.renderContext(mkContext(50), colors, {
+        enabled: true,
+        displayStyle: "blocks",
+      });
       expect(blocks!.text).toContain("█");
       expect(blocks!.text).toContain("░");
     });
 
     it("should render all standard styles with 10-char bars and correct fill/empty", () => {
-      const styles: Array<{ name: "blocks" | "squares" | "dots" | "line" | "filled" | "geometric"; filled: string; empty: string }> = [
+      const styles: Array<{
+        name: "blocks" | "squares" | "dots" | "line" | "filled" | "geometric";
+        filled: string;
+        empty: string;
+      }> = [
         { name: "blocks", filled: "█", empty: "░" },
         { name: "squares", filled: "◼", empty: "◻" },
         { name: "dots", filled: "●", empty: "○" },
@@ -612,7 +833,10 @@ describe("Segment Time Logic", () => {
       ];
 
       for (const { name, filled, empty } of styles) {
-        const result = renderer.renderContext(mkContext(50), colors, { enabled: true, displayStyle: name });
+        const result = renderer.renderContext(mkContext(50), colors, {
+          enabled: true,
+          displayStyle: name,
+        });
         const barPart = result!.text.split(" ")[0]!;
         expect(barPart).toHaveLength(10);
         expect(barPart).toContain(filled);
@@ -621,53 +845,486 @@ describe("Segment Time Logic", () => {
     });
 
     it("should handle capped style edge cases: 0%, mid, and 100%", () => {
-      const at0 = renderer.renderContext(mkContext(0), colors, { enabled: true, displayStyle: "capped" });
+      const at0 = renderer.renderContext(mkContext(0), colors, {
+        enabled: true,
+        displayStyle: "capped",
+      });
       expect(at0!.text).toMatch(/^╸┄{9}/);
 
-      const at50 = renderer.renderContext(mkContext(50), colors, { enabled: true, displayStyle: "capped" });
+      const at50 = renderer.renderContext(mkContext(50), colors, {
+        enabled: true,
+        displayStyle: "capped",
+      });
       expect(at50!.text).toContain("━");
       expect(at50!.text).toContain("╸");
       expect(at50!.text).toContain("┄");
 
-      const at100 = renderer.renderContext(mkContext(100), colors, { enabled: true, displayStyle: "capped" });
+      const at100 = renderer.renderContext(mkContext(100), colors, {
+        enabled: true,
+        displayStyle: "capped",
+      });
       expect(at100!.text).toMatch(/^━{10}/);
     });
 
     it("should render ball style with exactly one position marker", () => {
-      const result = renderer.renderContext(mkContext(50), colors, { enabled: true, displayStyle: "ball" });
+      const result = renderer.renderContext(mkContext(50), colors, {
+        enabled: true,
+        displayStyle: "ball",
+      });
       const barPart = result!.text.split(" ")[0]!;
       expect(barPart).toHaveLength(10);
       expect((barPart.match(/●/g) || []).length).toBe(1);
     });
 
     it("should render empty bars on null context and text fallback for text style", () => {
-      const barNull = renderer.renderContext(null, colors, { enabled: true, displayStyle: "squares" });
+      const barNull = renderer.renderContext(null, colors, {
+        enabled: true,
+        displayStyle: "squares",
+      });
       expect(barNull!.text).toContain("◻".repeat(10));
       expect(barNull!.text).toContain("0%");
 
-      const textNull = renderer.renderContext(null, colors, { enabled: true, displayStyle: "text" });
+      const textNull = renderer.renderContext(null, colors, {
+        enabled: true,
+        displayStyle: "text",
+      });
       expect(textNull!.text).toContain("◔");
     });
 
     it("should apply warning/critical colors based on context left percentage", () => {
-      const warning = renderer.renderContext(mkContext(70), colors, { enabled: true, displayStyle: "blocks" });
+      const warning = renderer.renderContext(mkContext(70), colors, {
+        enabled: true,
+        displayStyle: "blocks",
+      });
       expect(warning!.bgColor).toBe(colors.contextWarningBg);
 
-      const critical = renderer.renderContext(mkContext(90), colors, { enabled: true, displayStyle: "blocks" });
+      const critical = renderer.renderContext(mkContext(90), colors, {
+        enabled: true,
+        displayStyle: "blocks",
+      });
       expect(critical!.bgColor).toBe(colors.contextCriticalBg);
 
-      const normal = renderer.renderContext(mkContext(50), colors, { enabled: true, displayStyle: "blocks" });
+      const normal = renderer.renderContext(mkContext(50), colors, {
+        enabled: true,
+        displayStyle: "blocks",
+      });
       expect(normal!.bgColor).toBe(colors.contextBg);
     });
 
     it("should toggle token count display with showPercentageOnly", () => {
-      const withTokens = renderer.renderContext(mkContext(50), colors, { enabled: true, displayStyle: "blocks" });
+      const withTokens = renderer.renderContext(mkContext(50), colors, {
+        enabled: true,
+        displayStyle: "blocks",
+      });
       expect(withTokens!.text).toContain((100000).toLocaleString());
       expect(withTokens!.text).toContain("50%");
 
-      const pctOnly = renderer.renderContext(mkContext(50), colors, { enabled: true, displayStyle: "blocks", showPercentageOnly: true });
+      const pctOnly = renderer.renderContext(mkContext(50), colors, {
+        enabled: true,
+        displayStyle: "blocks",
+        showPercentageOnly: true,
+      });
       expect(pctOnly!.text).toContain("50%");
       expect(pctOnly!.text).not.toContain((100000).toLocaleString());
+    });
+  });
+
+  describe("showIcons flag (hide leading segment icons)", () => {
+    const symbols = {
+      branch: "⎇",
+      session_cost: "§",
+      git_clean: "✓",
+      git_dirty: "●",
+      git_ahead: "↑",
+      git_behind: "↓",
+      metrics_response: "⧖",
+      metrics_lines_added: "+",
+    } as any;
+    const colors = {
+      sessionBg: "",
+      sessionFg: "",
+      gitBg: "",
+      gitFg: "",
+      metricsBg: "",
+      metricsFg: "",
+    } as any;
+
+    it("drops leading session icon when display.showIcons is false, per-segment override re-enables git icon, and status glyphs stay", () => {
+      const config = {
+        theme: "dark",
+        display: {
+          style: "minimal",
+          showIcons: false,
+          lines: [
+            {
+              segments: {
+                session: { enabled: true, type: "cost" },
+                git: { enabled: true, showIcon: true, showAheadBehind: true },
+              },
+            },
+          ],
+        },
+      } as any;
+      const renderer = new SegmentRenderer(config, symbols);
+
+      const usageInfo = {
+        session: {
+          cost: 1.23,
+          tokens: 0,
+          calculatedCost: 1.23,
+          officialCost: null,
+          tokenBreakdown: null,
+        },
+      } as any;
+      const session = renderer.renderSession(
+        usageInfo,
+        colors,
+        config.display.lines[0].segments.session,
+      );
+      expect(session!.text).not.toContain("§");
+      expect(session!.text.startsWith(" ")).toBe(false);
+
+      const git = renderer.renderGit(
+        { branch: "main", status: "dirty", ahead: 1, behind: 2 } as any,
+        colors,
+        config.display.lines[0].segments.git,
+      );
+      expect(git!.text).toContain("⎇");
+      expect(git!.text).toContain("●");
+      expect(git!.text).toContain("↑1");
+      expect(git!.text).toContain("↓2");
+
+      const metrics = renderer.renderMetrics(
+        {
+          responseTime: 2.5,
+          lastResponseTime: null,
+          sessionDuration: null,
+          messageCount: null,
+          linesAdded: 12,
+          linesRemoved: null,
+        } as any,
+        colors,
+        { enabled: true, showResponseTime: true, showLinesAdded: true } as any,
+      );
+      expect(metrics!.text).toContain("⧖");
+      expect(metrics!.text).toContain("+");
+    });
+
+    it("global showIcons true with per-segment showIcon false drops only that segment's icon", () => {
+      const config = {
+        theme: "dark",
+        display: {
+          style: "minimal",
+          showIcons: true,
+          lines: [
+            {
+              segments: {
+                session: { enabled: true, type: "cost", showIcon: false },
+              },
+            },
+          ],
+        },
+      } as any;
+      const renderer = new SegmentRenderer(config, symbols);
+      const usageInfo = {
+        session: {
+          cost: 2.5,
+          tokens: 0,
+          calculatedCost: 2.5,
+          officialCost: null,
+          tokenBreakdown: null,
+        },
+      } as any;
+      const session = renderer.renderSession(
+        usageInfo,
+        colors,
+        config.display.lines[0].segments.session,
+      );
+      expect(session!.text).not.toContain("§");
+      expect(session!.text.startsWith(" ")).toBe(false);
+    });
+  });
+
+  describe("CacheTimer Segment", () => {
+    it("formats elapsed seconds across all thresholds", () => {
+      expect(formatCacheTimerElapsed(0)).toBe("0:00");
+      expect(formatCacheTimerElapsed(3)).toBe("0:03");
+      expect(formatCacheTimerElapsed(222)).toBe("3:42");
+      expect(formatCacheTimerElapsed(299)).toBe("4:59");
+      expect(formatCacheTimerElapsed(300)).toBe("5m");
+      expect(formatCacheTimerElapsed(1050)).toBe("17m");
+      expect(formatCacheTimerElapsed(3599)).toBe("59m");
+      expect(formatCacheTimerElapsed(3600)).toBe("1h+");
+      expect(formatCacheTimerElapsed(86400)).toBe("1h+");
+    });
+
+    it("escalates colors at 3m and 5m boundaries", () => {
+      const config = { theme: "dark", display: { style: "minimal" } } as any;
+      const symbols = { cache_timer: "◴" } as any;
+      const colors = {
+        cacheTimerBg: "#1f3a1f",
+        cacheTimerFg: "#90ee90",
+        cacheTimerBold: false,
+        contextWarningBg: "#92400e",
+        contextWarningFg: "#fbbf24",
+        contextWarningBold: false,
+        contextCriticalBg: "#991b1b",
+        contextCriticalFg: "#fca5a5",
+        contextCriticalBold: false,
+      } as any;
+      const renderer = new SegmentRenderer(config, symbols);
+
+      const healthy0 = renderer.renderCacheTimer({ elapsedSeconds: 0 }, colors);
+      expect(healthy0.bgColor).toBe(colors.cacheTimerBg);
+      expect(healthy0.fgColor).toBe(colors.cacheTimerFg);
+
+      const healthy179 = renderer.renderCacheTimer(
+        { elapsedSeconds: 179 },
+        colors,
+      );
+      expect(healthy179.bgColor).toBe(colors.cacheTimerBg);
+
+      const warn180 = renderer.renderCacheTimer(
+        { elapsedSeconds: 180 },
+        colors,
+      );
+      expect(warn180.bgColor).toBe(colors.contextWarningBg);
+      expect(warn180.fgColor).toBe(colors.contextWarningFg);
+
+      const warn299 = renderer.renderCacheTimer(
+        { elapsedSeconds: 299 },
+        colors,
+      );
+      expect(warn299.bgColor).toBe(colors.contextWarningBg);
+
+      const critical300 = renderer.renderCacheTimer(
+        { elapsedSeconds: 300 },
+        colors,
+      );
+      expect(critical300.bgColor).toBe(colors.contextCriticalBg);
+      expect(critical300.fgColor).toBe(colors.contextCriticalFg);
+
+      const critical3600 = renderer.renderCacheTimer(
+        { elapsedSeconds: 3600 },
+        colors,
+      );
+      expect(critical3600.bgColor).toBe(colors.contextCriticalBg);
+      expect(critical3600.text).toContain("1h+");
+    });
+
+    it("anchors elapsed time to the last user entry in the transcript", async () => {
+      const transcriptPath = join(tempDir, "transcript.jsonl");
+      const now = Date.now();
+      const userTs = new Date(now - 120_000).toISOString();
+      const assistantTs = new Date(now - 15_000).toISOString();
+      const content = [
+        JSON.stringify({
+          type: "user",
+          message: { role: "user" },
+          timestamp: new Date(now - 600_000).toISOString(),
+        }),
+        JSON.stringify({
+          type: "user",
+          message: { role: "user" },
+          timestamp: userTs,
+        }),
+        JSON.stringify({
+          type: "assistant",
+          message: { role: "assistant" },
+          timestamp: assistantTs,
+        }),
+      ].join("\n");
+      writeFileSync(transcriptPath, content);
+
+      const provider = new CacheTimerProvider();
+      const result = await provider.getCacheTimerInfo({
+        transcript_path: transcriptPath,
+      } as ClaudeHookData);
+
+      expect(result).not.toBeNull();
+      expect(result!.elapsedSeconds).toBeGreaterThanOrEqual(119);
+      expect(result!.elapsedSeconds).toBeLessThanOrEqual(125);
+    });
+  });
+
+  describe("Budget display toggles (renderToday)", () => {
+    const symbols = { today_cost: "◱" } as any;
+    const colors = {
+      todayBg: "",
+      todayFg: "",
+      todayBold: false,
+    } as any;
+
+    function renderTodayCase(opts: {
+      cost: number | null;
+      tokens?: number | null;
+      amount?: number;
+      budgetType?: "cost" | "tokens";
+      showValue?: boolean;
+      showPercentage?: boolean;
+    }) {
+      const config = {
+        theme: "dark",
+        display: { style: "minimal", showIcons: false, lines: [] },
+        budget: {
+          today: {
+            amount: opts.amount,
+            type: opts.budgetType,
+            warningThreshold: 80,
+            showValue: opts.showValue,
+            showPercentage: opts.showPercentage,
+          },
+        },
+      } as any;
+      const renderer = new SegmentRenderer(config, symbols);
+      const todayInfo = {
+        cost: opts.cost,
+        tokens: opts.tokens ?? null,
+        tokenBreakdown: null,
+        date: "2026-04-24",
+      } as any;
+      return renderer.renderToday(todayInfo, colors, {
+        enabled: true,
+        type: "cost",
+      } as any);
+    }
+
+    const cases: Array<{
+      name: string;
+      opts: Parameters<typeof renderTodayCase>[0];
+      expected: { isNull: boolean; textContains?: string[]; textEquals?: string };
+    }> = [
+      {
+        name: "default flags (both true) -> value + percentage",
+        opts: { cost: 10, amount: 50 },
+        expected: { isNull: false, textContains: ["$10.00", "20%"] },
+      },
+      {
+        name: "showPercentage:false -> value only",
+        opts: { cost: 10, amount: 50, showPercentage: false },
+        expected: { isNull: false, textEquals: "$10.00" },
+      },
+      {
+        name: "showValue:false -> percentage only",
+        opts: { cost: 10, amount: 50, showValue: false },
+        expected: { isNull: false, textEquals: "20%" },
+      },
+      {
+        name: "both false -> null",
+        opts: {
+          cost: 10,
+          amount: 50,
+          showValue: false,
+          showPercentage: false,
+        },
+        expected: { isNull: true },
+      },
+      {
+        name: "no budget + showValue:false -> value (flags no-op)",
+        opts: { cost: 10, showValue: false, showPercentage: true },
+        expected: { isNull: false, textEquals: "$10.00" },
+      },
+      {
+        name: "budget but pct not computable (tokens-budget, no tokens) -> falls back to base",
+        opts: {
+          cost: 10,
+          tokens: null,
+          amount: 50,
+          budgetType: "tokens",
+          showValue: false,
+          showPercentage: true,
+        },
+        expected: { isNull: false, textEquals: "$10.00" },
+      },
+      {
+        name: "both false + pct not computable -> falls back to base (not null)",
+        opts: {
+          cost: 10,
+          tokens: null,
+          amount: 50,
+          budgetType: "tokens",
+          showValue: false,
+          showPercentage: false,
+        },
+        expected: { isNull: false, textEquals: "$10.00" },
+      },
+    ];
+
+    it.each(cases)("$name", ({ opts, expected }) => {
+      const result = renderTodayCase(opts);
+      if (expected.isNull) {
+        expect(result).toBeNull();
+        return;
+      }
+      expect(result).not.toBeNull();
+      if (expected.textEquals !== undefined) {
+        expect(result!.text).toBe(expected.textEquals);
+      }
+      for (const piece of expected.textContains ?? []) {
+        expect(result!.text).toContain(piece);
+      }
+    });
+
+    it("renderSession applies the same flag semantics", () => {
+      const sessionSymbols = { session_cost: "§" } as any;
+      const sessionColors = {
+        sessionBg: "",
+        sessionFg: "",
+        sessionBold: false,
+      } as any;
+
+      function renderSessionCase(opts: {
+        cost: number | null;
+        amount?: number;
+        showValue?: boolean;
+        showPercentage?: boolean;
+      }) {
+        const config = {
+          theme: "dark",
+          display: { style: "minimal", showIcons: false, lines: [] },
+          budget: {
+            session: {
+              amount: opts.amount,
+              warningThreshold: 80,
+              showValue: opts.showValue,
+              showPercentage: opts.showPercentage,
+            },
+          },
+        } as any;
+        const renderer = new SegmentRenderer(config, sessionSymbols);
+        const usageInfo = {
+          session: {
+            cost: opts.cost,
+            tokens: 0,
+            calculatedCost: opts.cost,
+            officialCost: null,
+            tokenBreakdown: null,
+          },
+        } as any;
+        return renderer.renderSession(usageInfo, sessionColors, {
+          enabled: true,
+          type: "cost",
+        } as any);
+      }
+
+      expect(renderSessionCase({ cost: 10, amount: 50 })!.text).toBe(
+        "$10.00 20%",
+      );
+      expect(
+        renderSessionCase({ cost: 10, amount: 50, showPercentage: false })!
+          .text,
+      ).toBe("$10.00");
+      expect(
+        renderSessionCase({ cost: 10, amount: 50, showValue: false })!.text,
+      ).toBe("20%");
+      expect(
+        renderSessionCase({
+          cost: 10,
+          amount: 50,
+          showValue: false,
+          showPercentage: false,
+        }),
+      ).toBeNull();
     });
   });
 });

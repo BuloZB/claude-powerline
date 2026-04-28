@@ -32,6 +32,7 @@ export type { ContextInfo } from "./segments/context";
 export type { MetricsInfo } from "./segments/metrics";
 export type { BlockInfo } from "./segments/block";
 export type { TodayInfo } from "./segments/today";
+export type { CacheTimerInfo } from "./segments/cacheTimer";
 
 export type {
   SegmentConfig,
@@ -47,6 +48,9 @@ export type {
   SessionIdSegmentConfig,
   EnvSegmentConfig,
   WeeklySegmentConfig,
+  AgentSegmentConfig,
+  ThinkingSegmentConfig,
+  CacheTimerSegmentConfig,
   PowerlineSymbols,
   SegmentData,
   BarDisplayStyle,
@@ -135,6 +139,7 @@ export {
   formatTimeRemaining,
   formatLongTimeRemaining,
   minutesUntilReset,
+  formatCacheTimerElapsed,
 } from "./utils/formatters";
 export { getBudgetStatus } from "./utils/budget";
 

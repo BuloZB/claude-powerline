@@ -22,9 +22,12 @@ import {
   formatLongTimeRemaining,
   minutesUntilReset,
   abbreviateFishStyle,
+  formatCacheTimerElapsed,
 } from "../utils/formatters";
-import { getBudgetStatus } from "../utils/budget";
+import { resolveBudgetDisplay } from "../utils/budget";
 import { colorize, truncateAnsi } from "./primitives";
+import { getEffortLevel, getThinkingEnabled } from "../utils/claude";
+import { resolveIconVisibility } from "../utils/icon-visibility";
 
 export function resolveTitleToken(
   template: string,
@@ -111,16 +114,19 @@ export function buildTitleBar(
   );
 }
 
-function resolveThresholdColor(
+function resolveThresholdStyle(
   pct: number,
-  defaultColor: string,
+  defaultFg: string,
+  defaultBold: boolean,
   colors: PowerlineColors,
   warningAt = 60,
   criticalAt = 80,
-): string {
-  if (pct >= criticalAt) return colors.contextCriticalFg;
-  if (pct >= warningAt) return colors.contextWarningFg;
-  return defaultColor;
+): { fg: string; bold: boolean } {
+  if (pct >= criticalAt)
+    return { fg: colors.contextCriticalFg, bold: colors.contextCriticalBold };
+  if (pct >= warningAt)
+    return { fg: colors.contextWarningFg, bold: colors.contextWarningBold };
+  return { fg: defaultFg, bold: defaultBold };
 }
 
 function buildBarString(
@@ -129,6 +135,7 @@ function buildBarString(
   sym: SymbolSet,
   reset: string,
   fgColor: string,
+  bold = false,
 ): string {
   barWidth = Math.max(5, barWidth);
   const filledCount = Math.max(
@@ -138,12 +145,13 @@ function buildBarString(
   const emptyCount = barWidth - filledCount;
   const bar =
     sym.bar_filled.repeat(filledCount) + sym.bar_empty.repeat(emptyCount);
-  return colorize(bar, fgColor, reset);
+  return colorize(bar, fgColor, reset, bold);
 }
 
 export function formatContextParts(
   data: TuiData,
   sym: SymbolSet,
+  iconVisible = true,
 ): Record<string, string> {
   if (!data.contextInfo)
     return { icon: "", label: "context", bar: "", pct: "", tokens: "" };
@@ -153,7 +161,7 @@ export function formatContextParts(
   const maxStr = formatTokenCount(data.contextInfo.maxTokens);
 
   return {
-    icon: sym.context_time,
+    icon: iconVisible ? sym.context_time : "",
     label: "context",
     bar: " ",
     pct: `${usedPct}%`,
@@ -173,8 +181,13 @@ export function buildContextBar(
   const usedPct = data.contextInfo.usablePercentage;
   const defaultFg =
     partFg?.["context.bar"] ?? partFg?.["context"] ?? colors.contextFg;
-  const fgColor = resolveThresholdColor(usedPct, defaultFg, colors);
-  return buildBarString(usedPct, barWidth, sym, reset, fgColor);
+  const { fg, bold } = resolveThresholdStyle(
+    usedPct,
+    defaultFg,
+    colors.contextBold,
+    colors,
+  );
+  return buildBarString(usedPct, barWidth, sym, reset, fg, bold);
 }
 
 export function buildBlockBar(
@@ -192,14 +205,15 @@ export function buildBlockBar(
   const warningThreshold = config.budget?.block?.warningThreshold ?? 80;
   const defaultFg =
     partFg?.["block.bar"] ?? partFg?.["block"] ?? colors.blockFg;
-  const fgColor = resolveThresholdColor(
+  const { fg, bold } = resolveThresholdStyle(
     pct,
     defaultFg,
+    colors.blockBold,
     colors,
     50,
     warningThreshold,
   );
-  return buildBarString(pct, barWidth, sym, reset, fgColor);
+  return buildBarString(pct, barWidth, sym, reset, fg, bold);
 }
 
 export function buildWeeklyBar(
@@ -216,8 +230,13 @@ export function buildWeeklyBar(
   const pct = sevenDay.used_percentage;
   const defaultFg =
     partFg?.["weekly.bar"] ?? partFg?.["weekly"] ?? colors.weeklyFg;
-  const fgColor = resolveThresholdColor(pct, defaultFg, colors);
-  return buildBarString(pct, barWidth, sym, reset, fgColor);
+  const { fg, bold } = resolveThresholdStyle(
+    pct,
+    defaultFg,
+    colors.weeklyBold,
+    colors,
+  );
+  return buildBarString(pct, barWidth, sym, reset, fg, bold);
 }
 
 export function buildContextLine(
@@ -244,9 +263,14 @@ export function buildContextLine(
   const bar =
     sym.bar_filled.repeat(filledCount) + sym.bar_empty.repeat(emptyCount);
 
-  const fgColor = resolveThresholdColor(usedPct, colors.contextFg, colors);
+  const { fg, bold } = resolveThresholdStyle(
+    usedPct,
+    colors.contextFg,
+    colors.contextBold,
+    colors,
+  );
 
-  return colorize(`${bar}${suffix}`, fgColor, reset);
+  return colorize(`${bar}${suffix}`, fg, reset, bold);
 }
 
 function getDirectoryDisplay(hookData: TuiData["hookData"]): string {
@@ -266,40 +290,70 @@ export function collectMetricSegments(
   if (data.blockInfo) {
     segments.push(
       colorize(
-        formatBlockSegment(data.blockInfo, sym, config),
+        formatBlockSegment(
+          data.blockInfo,
+          sym,
+          config,
+          resolveIconVisibility(config, "block"),
+        ),
         colors.blockFg,
         reset,
+        colors.blockBold,
       ),
     );
   }
   const sevenDay = data.hookData.rate_limits?.seven_day;
   if (sevenDay) {
     segments.push(
-      colorize(formatWeeklySegment(sevenDay, sym), colors.weeklyFg, reset),
+      colorize(
+        formatWeeklySegment(
+          sevenDay,
+          sym,
+          resolveIconVisibility(config, "weekly"),
+        ),
+        colors.weeklyFg,
+        reset,
+        colors.weeklyBold,
+      ),
     );
   }
   if (data.usageInfo) {
-    segments.push(
-      colorize(
-        formatSessionSegment(data.usageInfo, sym, config),
-        colors.sessionFg,
-        reset,
-      ),
+    const sessionStr = formatSessionSegment(
+      data.usageInfo,
+      sym,
+      config,
+      resolveIconVisibility(config, "session"),
     );
+    if (sessionStr) {
+      segments.push(
+        colorize(sessionStr, colors.sessionFg, reset, colors.sessionBold),
+      );
+    }
   }
   if (data.todayInfo) {
-    segments.push(
-      colorize(
-        formatTodaySegment(data.todayInfo, sym, config),
-        colors.todayFg,
-        reset,
-      ),
+    const todayStr = formatTodaySegment(
+      data.todayInfo,
+      sym,
+      config,
+      resolveIconVisibility(config, "today"),
     );
+    if (todayStr) {
+      segments.push(
+        colorize(todayStr, colors.todayFg, reset, colors.todayBold),
+      );
+    }
   }
 
   const activityParts = collectActivityParts(data, sym);
   if (activityParts.length > 0) {
-    segments.push(colorize(activityParts.join(" · "), colors.metricsFg, reset));
+    segments.push(
+      colorize(
+        activityParts.join(" · "),
+        colors.metricsFg,
+        reset,
+        colors.metricsBold,
+      ),
+    );
   }
 
   return segments;
@@ -331,14 +385,19 @@ export function collectWorkspaceParts(
   sym: SymbolSet,
   reset: string,
   colors: PowerlineColors,
+  config: PowerlineConfig,
 ): string[] {
   const parts: string[] = [];
 
-  const gitStr = formatGitSegment(data, sym);
-  if (gitStr) parts.push(colorize(gitStr, colors.gitFg, reset));
+  const gitStr = formatGitSegment(
+    data,
+    sym,
+    resolveIconVisibility(config, "git"),
+  );
+  if (gitStr) parts.push(colorize(gitStr, colors.gitFg, reset, colors.gitBold));
 
   const dir = abbreviateFishStyle(getDirectoryDisplay(data.hookData));
-  parts.push(colorize(dir, colors.modeFg, reset));
+  parts.push(colorize(dir, colors.modeFg, reset, colors.modeBold));
 
   return parts;
 }
@@ -352,17 +411,59 @@ export function collectFooterParts(
 ): string[] {
   const parts: string[] = [];
 
-  if (data.hookData.version) {
+  const versionText = formatVersionSegment(
+    data,
+    sym,
+    resolveIconVisibility(config, "version"),
+  );
+  if (versionText) {
     parts.push(
-      colorize(
-        `${sym.version} v${data.hookData.version}`,
-        colors.versionFg,
-        reset,
-      ),
+      colorize(versionText, colors.versionFg, reset, colors.versionBold),
     );
   }
+
+  const thinkingSegConfig = config.display.lines
+    .map((line) => line.segments.thinking)
+    .find((t) => t?.enabled);
+  const thinkingText = formatThinkingSegment(
+    data,
+    sym,
+    thinkingSegConfig,
+    resolveIconVisibility(config, "thinking"),
+  );
+  if (thinkingText) {
+    parts.push(
+      colorize(thinkingText, colors.thinkingFg, reset, colors.thinkingBold),
+    );
+  }
+
+  const cacheTimerEnabled = config.display.lines.some(
+    (line) => line.segments.cacheTimer?.enabled,
+  );
+  if (cacheTimerEnabled && data.cacheTimerInfo) {
+    const cacheTimerText = formatCacheTimerSegment(
+      data,
+      sym,
+      resolveIconVisibility(config, "cacheTimer"),
+    );
+    if (cacheTimerText) {
+      const { fg, bold } = cacheTimerStyle(
+        data.cacheTimerInfo.elapsedSeconds,
+        colors,
+      );
+      parts.push(colorize(cacheTimerText, fg, reset, bold));
+    }
+  }
+
   if (data.tmuxSessionId) {
-    parts.push(colorize(`tmux:${data.tmuxSessionId}`, colors.tmuxFg, reset));
+    parts.push(
+      colorize(
+        `tmux:${data.tmuxSessionId}`,
+        colors.tmuxFg,
+        reset,
+        colors.tmuxBold,
+      ),
+    );
   }
 
   if (data.metricsInfo) {
@@ -393,7 +494,14 @@ export function collectFooterParts(
       );
     }
     if (metricParts.length > 0) {
-      parts.push(colorize(metricParts.join(" · "), colors.metricsFg, reset));
+      parts.push(
+        colorize(
+          metricParts.join(" · "),
+          colors.metricsFg,
+          reset,
+          colors.metricsBold,
+        ),
+      );
     }
   }
 
@@ -406,7 +514,12 @@ export function collectFooterParts(
     if (envVal) {
       const prefix = envConfig.prefix ?? envConfig.variable;
       parts.push(
-        colorize(prefix ? `${prefix}:${envVal}` : envVal, colors.envFg, reset),
+        colorize(
+          prefix ? `${prefix}:${envVal}` : envVal,
+          colors.envFg,
+          reset,
+          colors.envBold,
+        ),
       );
     }
   }
@@ -418,12 +531,13 @@ export function formatBlockParts(
   blockInfo: TuiData["blockInfo"] & {},
   sym: SymbolSet,
   _config: PowerlineConfig,
+  iconVisible = true,
 ): Record<string, string> {
   const value = `${Math.round(blockInfo.nativeUtilization)}%`;
   const time = formatTimeRemaining(blockInfo.timeRemaining);
 
   return {
-    icon: sym.block_cost,
+    icon: iconVisible ? sym.block_cost : "",
     label: "block",
     value,
     time,
@@ -436,9 +550,10 @@ export function formatBlockSegment(
   blockInfo: TuiData["blockInfo"] & {},
   sym: SymbolSet,
   config: PowerlineConfig,
+  iconVisible = true,
 ): string {
-  const parts = formatBlockParts(blockInfo, sym, config);
-  let text = `${parts.icon} ${parts.value}`;
+  const parts = formatBlockParts(blockInfo, sym, config, iconVisible);
+  let text = parts.icon ? `${parts.icon} ${parts.value}` : (parts.value ?? "");
   if (parts.time) text += ` · ${parts.time}`;
   if (parts.budget) text += parts.budget;
   return text;
@@ -447,18 +562,26 @@ export function formatBlockSegment(
 export function formatWeeklyParts(
   sevenDay: { used_percentage: number; resets_at: number },
   sym: SymbolSet,
+  iconVisible = true,
 ): Record<string, string> {
   const pct = `${Math.round(sevenDay.used_percentage)}%`;
   const time = formatLongTimeRemaining(minutesUntilReset(sevenDay.resets_at));
-  return { icon: sym.weekly_cost, label: "weekly", pct, time, bar: " " };
+  return {
+    icon: iconVisible ? sym.weekly_cost : "",
+    label: "weekly",
+    pct,
+    time,
+    bar: " ",
+  };
 }
 
 export function formatWeeklySegment(
   sevenDay: { used_percentage: number; resets_at: number },
   sym: SymbolSet,
+  iconVisible = true,
 ): string {
-  const parts = formatWeeklyParts(sevenDay, sym);
-  let text = `${parts.icon} ${parts.pct}`;
+  const parts = formatWeeklyParts(sevenDay, sym, iconVisible);
+  let text = parts.icon ? `${parts.icon} ${parts.pct}` : (parts.pct ?? "");
   if (parts.time) text += ` · ${parts.time}`;
   return text;
 }
@@ -467,29 +590,30 @@ export function formatSessionParts(
   usageInfo: TuiData["usageInfo"] & {},
   sym: SymbolSet,
   config: PowerlineConfig,
+  iconVisible = true,
 ): Record<string, string> {
+  const state = resolveBudgetDisplay(
+    usageInfo.session.cost,
+    usageInfo.session.tokens,
+    config.budget?.session,
+  );
+
+  if (state.suppressAll) {
+    return { icon: "", label: "", cost: "", tokens: "", budget: "" };
+  }
+
   const sessionTokens = usageInfo.session.tokens;
   const tokenStr =
-    sessionTokens !== null && sessionTokens > 0
+    state.showBase && sessionTokens !== null && sessionTokens > 0
       ? formatTokenCount(sessionTokens)
       : "";
 
-  let budget = "";
-  const sessionBudget = config.budget?.session;
-  if (sessionBudget?.amount && usageInfo.session.cost !== null) {
-    budget = getBudgetStatus(
-      usageInfo.session.cost,
-      sessionBudget.amount,
-      sessionBudget.warningThreshold || 80,
-    ).displayText;
-  }
-
   return {
-    icon: sym.session_cost,
-    label: "session",
-    cost: formatCost(usageInfo.session.cost),
+    icon: iconVisible ? sym.session_cost : "",
+    label: state.percentageOnly ? "" : "session",
+    cost: state.showBase ? formatCost(usageInfo.session.cost) : "",
     tokens: tokenStr,
-    budget,
+    budget: state.percentText ? ` ${state.percentText}` : "",
   };
 }
 
@@ -497,11 +621,28 @@ export function formatSessionSegment(
   usageInfo: TuiData["usageInfo"] & {},
   sym: SymbolSet,
   config: PowerlineConfig,
+  iconVisible = true,
 ): string {
-  const parts = formatSessionParts(usageInfo, sym, config);
-  let text = `${parts.icon} ${parts.cost}`;
-  if (parts.tokens) text += ` · ${parts.tokens}`;
-  if (parts.budget) text += parts.budget;
+  const state = resolveBudgetDisplay(
+    usageInfo.session.cost,
+    usageInfo.session.tokens,
+    config.budget?.session,
+  );
+  if (state.suppressAll) return "";
+
+  const icon = iconVisible ? sym.session_cost : "";
+
+  if (!state.showBase) {
+    return icon ? `${icon} ${state.percentText}` : state.percentText;
+  }
+
+  const costStr = formatCost(usageInfo.session.cost);
+  const sessionTokens = usageInfo.session.tokens;
+  let text = icon ? `${icon} ${costStr}` : costStr;
+  if (sessionTokens !== null && sessionTokens > 0) {
+    text += ` · ${formatTokenCount(sessionTokens)}`;
+  }
+  if (state.percentText) text += ` ${state.percentText}`;
   return text;
 }
 
@@ -509,22 +650,23 @@ export function formatTodayParts(
   todayInfo: TuiData["todayInfo"] & {},
   sym: SymbolSet,
   config: PowerlineConfig,
+  iconVisible = true,
 ): Record<string, string> {
-  let budget = "";
-  const todayBudget = config.budget?.today;
-  if (todayBudget?.amount && todayInfo.cost !== null) {
-    budget = getBudgetStatus(
-      todayInfo.cost,
-      todayBudget.amount,
-      todayBudget.warningThreshold || 80,
-    ).displayText;
+  const state = resolveBudgetDisplay(
+    todayInfo.cost,
+    todayInfo.tokens,
+    config.budget?.today,
+  );
+
+  if (state.suppressAll) {
+    return { icon: "", label: "", cost: "", budget: "" };
   }
 
   return {
-    icon: sym.today_cost,
-    cost: formatCost(todayInfo.cost),
-    label: "today",
-    budget,
+    icon: iconVisible ? sym.today_cost : "",
+    cost: state.showBase ? formatCost(todayInfo.cost) : "",
+    label: state.percentageOnly ? "" : "today",
+    budget: state.percentText ? ` ${state.percentText}` : "",
   };
 }
 
@@ -532,10 +674,24 @@ export function formatTodaySegment(
   todayInfo: TuiData["todayInfo"] & {},
   sym: SymbolSet,
   config: PowerlineConfig,
+  iconVisible = true,
 ): string {
-  const parts = formatTodayParts(todayInfo, sym, config);
-  let text = `${parts.icon} ${parts.cost} ${parts.label}`;
-  if (parts.budget) text += parts.budget;
+  const state = resolveBudgetDisplay(
+    todayInfo.cost,
+    todayInfo.tokens,
+    config.budget?.today,
+  );
+  if (state.suppressAll) return "";
+
+  const icon = iconVisible ? sym.today_cost : "";
+
+  if (!state.showBase) {
+    return icon ? `${icon} ${state.percentText}` : state.percentText;
+  }
+
+  const costStr = formatCost(todayInfo.cost);
+  let text = icon ? `${icon} ${costStr} today` : `${costStr} today`;
+  if (state.percentText) text += ` ${state.percentText}`;
   return text;
 }
 
@@ -655,7 +811,11 @@ function formatActivitySegment(data: TuiData, sym: SymbolSet): string {
   return filled.length > 0 ? filled.join(" · ") : "";
 }
 
-function formatGitParts(data: TuiData, sym: SymbolSet): Record<string, string> {
+function formatGitParts(
+  data: TuiData,
+  sym: SymbolSet,
+  iconVisible = true,
+): Record<string, string> {
   if (!data.gitInfo)
     return {
       icon: "",
@@ -691,7 +851,9 @@ function formatGitParts(data: TuiData, sym: SymbolSet): Record<string, string> {
     counts.push(`?${data.gitInfo.untracked}`);
   const working = counts.length > 0 ? `(${counts.join(" ")})` : "";
 
-  const headParts = [sym.branch, data.gitInfo.branch, statusIcon];
+  const headParts: string[] = [];
+  if (iconVisible) headParts.push(sym.branch);
+  headParts.push(data.gitInfo.branch, statusIcon);
   if (ahead) headParts.push(ahead);
   if (behind) headParts.push(behind);
 
@@ -700,7 +862,7 @@ function formatGitParts(data: TuiData, sym: SymbolSet): Record<string, string> {
   if (behind) infoParts.push(behind);
 
   return {
-    icon: sym.branch,
+    icon: iconVisible ? sym.branch : "",
     headVal: infoParts.join(" "),
     branch: data.gitInfo.branch,
     status: statusIcon,
@@ -711,10 +873,16 @@ function formatGitParts(data: TuiData, sym: SymbolSet): Record<string, string> {
   };
 }
 
-function formatGitSegment(data: TuiData, sym: SymbolSet): string {
-  const parts = formatGitParts(data, sym);
-  if (!parts.icon) return "";
-  let text = `${parts.icon} ${parts.branch} ${parts.status}`;
+function formatGitSegment(
+  data: TuiData,
+  sym: SymbolSet,
+  iconVisible = true,
+): string {
+  const parts = formatGitParts(data, sym, iconVisible);
+  if (!parts.branch) return "";
+  let text = parts.icon
+    ? `${parts.icon} ${parts.branch} ${parts.status}`
+    : `${parts.branch} ${parts.status}`;
   if (parts.ahead) text += ` ${parts.ahead}`;
   if (parts.behind) text += `${parts.behind}`;
   if (parts.working) text += ` ${parts.working}`;
@@ -725,8 +893,12 @@ function formatDirParts(
   data: TuiData,
   config: PowerlineConfig,
   sym: SymbolSet,
+  iconVisible = true,
 ): Record<string, string> {
-  return { icon: sym.dir, value: formatDirValue(data, config) };
+  return {
+    icon: iconVisible ? sym.dir : "",
+    value: formatDirValue(data, config),
+  };
 }
 
 function formatDirValue(data: TuiData, config: PowerlineConfig): string {
@@ -747,15 +919,137 @@ function formatDirValue(data: TuiData, config: PowerlineConfig): string {
 function formatVersionParts(
   data: TuiData,
   sym: SymbolSet,
+  iconVisible = true,
 ): Record<string, string> {
   if (!data.hookData.version) return { icon: "", value: "" };
-  return { icon: sym.version, value: `v${data.hookData.version}` };
+  return {
+    icon: iconVisible ? sym.version : "",
+    value: `v${data.hookData.version}`,
+  };
 }
 
-function formatVersionSegment(data: TuiData, sym: SymbolSet): string {
-  const parts = formatVersionParts(data, sym);
-  if (!parts.icon) return "";
-  return `${parts.icon} ${parts.value}`;
+function formatVersionSegment(
+  data: TuiData,
+  sym: SymbolSet,
+  iconVisible = true,
+): string {
+  const parts = formatVersionParts(data, sym, iconVisible);
+  if (!parts.value) return "";
+  return parts.icon ? `${parts.icon} ${parts.value}` : parts.value;
+}
+
+function formatAgentParts(
+  data: TuiData,
+  sym: SymbolSet,
+  iconVisible = true,
+): Record<string, string> {
+  const raw = data.hookData.agent?.name;
+  if (typeof raw !== "string") return { icon: "", name: "" };
+  const name = raw.trim();
+  if (!name) return { icon: "", name: "" };
+  return {
+    icon: iconVisible ? sym.agent : "",
+    name,
+  };
+}
+
+function formatAgentSegment(
+  data: TuiData,
+  sym: SymbolSet,
+  config: PowerlineConfig,
+  iconVisible = true,
+): string {
+  const parts = formatAgentParts(data, sym, iconVisible);
+  if (!parts.name) return "";
+  const agentConfig = config.display.lines
+    .map((line) => line.segments.agent)
+    .find((a) => a?.enabled);
+  const body = agentConfig?.showLabel ? `agent: ${parts.name}` : parts.name;
+  return parts.icon ? `${parts.icon} ${body}` : body;
+}
+
+function buildThinkingBody(
+  data: TuiData,
+  thinkingConfig: { showEnabled?: boolean; showEffort?: boolean } | undefined,
+): string {
+  const showEnabled = thinkingConfig?.showEnabled ?? true;
+  const showEffort = thinkingConfig?.showEffort ?? true;
+  if (!showEnabled && !showEffort) return "";
+
+  const enabled = showEnabled ? getThinkingEnabled(data.hookData) : null;
+  const level = showEffort ? getEffortLevel(data.hookData) : null;
+
+  const segments: string[] = [];
+  if (enabled !== null) segments.push(enabled ? "On" : "Off");
+  if (level) segments.push(level);
+  return segments.join(" · ");
+}
+
+function formatThinkingParts(
+  data: TuiData,
+  sym: SymbolSet,
+  thinkingConfig: { showEnabled?: boolean; showEffort?: boolean } | undefined,
+  iconVisible = true,
+): Record<string, string> {
+  const showEnabled = thinkingConfig?.showEnabled ?? true;
+  const showEffort = thinkingConfig?.showEffort ?? true;
+  const enabled = showEnabled ? getThinkingEnabled(data.hookData) : null;
+  const level = showEffort ? getEffortLevel(data.hookData) : null;
+
+  const enabledText = enabled === null ? "" : enabled ? "On" : "Off";
+  const effortText = level ?? "";
+  const hasAny = enabledText !== "" || effortText !== "";
+  return {
+    icon: hasAny && iconVisible ? sym.thinking : "",
+    enabled: enabledText,
+    effort: effortText,
+  };
+}
+
+function formatThinkingSegment(
+  data: TuiData,
+  sym: SymbolSet,
+  thinkingConfig: { showEnabled?: boolean; showEffort?: boolean } | undefined,
+  iconVisible = true,
+): string {
+  const body = buildThinkingBody(data, thinkingConfig);
+  if (!body) return "";
+  return iconVisible ? `${sym.thinking} ${body}` : body;
+}
+
+function formatCacheTimerParts(
+  data: TuiData,
+  sym: SymbolSet,
+  iconVisible = true,
+): Record<string, string> {
+  if (!data.cacheTimerInfo) return { icon: "", value: "" };
+  return {
+    icon: iconVisible ? sym.cache_timer : "",
+    value: formatCacheTimerElapsed(data.cacheTimerInfo.elapsedSeconds),
+  };
+}
+
+function formatCacheTimerSegment(
+  data: TuiData,
+  sym: SymbolSet,
+  iconVisible = true,
+): string {
+  const parts = formatCacheTimerParts(data, sym, iconVisible);
+  if (!parts.value) return "";
+  return parts.icon ? `${parts.icon} ${parts.value}` : parts.value;
+}
+
+function cacheTimerStyle(
+  elapsed: number,
+  colors: PowerlineColors,
+): { fg: string; bold: boolean } {
+  if (elapsed >= 300) {
+    return { fg: colors.contextCriticalFg, bold: colors.contextCriticalBold };
+  }
+  if (elapsed >= 180) {
+    return { fg: colors.contextWarningFg, bold: colors.contextWarningBold };
+  }
+  return { fg: colors.cacheTimerFg, bold: colors.cacheTimerBold };
 }
 
 function formatTmuxParts(data: TuiData): Record<string, string> {
@@ -794,11 +1088,12 @@ function addParts(
   color: string,
   reset: string,
   partFg?: Record<string, string>,
+  bold = false,
 ): void {
   for (const [key, value] of Object.entries(parts)) {
     const partKey = `${segment}.${key}`;
     const partColor = partFg?.[partKey] ?? partFg?.[segment] ?? color;
-    result[partKey] = value ? colorize(value, partColor, reset) : "";
+    result[partKey] = value ? colorize(value, partColor, reset, bold) : "";
   }
 }
 
@@ -871,23 +1166,47 @@ export function resolveSegments(
   const { sym, config, reset, colors } = ctx;
   const pf = colors.partFg;
 
-  const colorizeOrEmpty = (text: string, color: string): string =>
-    text ? colorize(text, color, reset) : "";
+  const colorizeOrEmpty = (
+    text: string,
+    color: string,
+    bold = false,
+  ): string => (text ? colorize(text, color, reset, bold) : "");
 
   const result: Record<string, string> = {};
+
+  const iconVisible = {
+    model: resolveIconVisibility(config, "model"),
+    context: resolveIconVisibility(config, "context"),
+    block: resolveIconVisibility(config, "block"),
+    session: resolveIconVisibility(config, "session"),
+    today: resolveIconVisibility(config, "today"),
+    weekly: resolveIconVisibility(config, "weekly"),
+    git: resolveIconVisibility(config, "git"),
+    directory: resolveIconVisibility(config, "directory"),
+    version: resolveIconVisibility(config, "version"),
+    agent: resolveIconVisibility(config, "agent"),
+    thinking: resolveIconVisibility(config, "thinking"),
+    cacheTimer: resolveIconVisibility(config, "cacheTimer"),
+  };
 
   // Model
   const rawModelName = data.hookData.model?.display_name || "Claude";
   const modelName = formatModelName(rawModelName).toLowerCase();
   const modelColor = pf?.["model"] ?? colors.modelFg;
-  result.model = colorizeOrEmpty(`${sym.model} ${modelName}`, modelColor);
+  const modelIcon = iconVisible.model ? sym.model : "";
+  result.model = colorizeOrEmpty(
+    modelIcon ? `${modelIcon} ${modelName}` : modelName,
+    modelColor,
+    colors.modelBold,
+  );
   addParts(
     result,
     "model",
-    { icon: sym.model, value: modelName },
+    { icon: modelIcon, value: modelName },
     colors.modelFg,
     reset,
     pf,
+    colors.modelBold,
   );
 
   // Context (bar is width-dependent, resolved later via lateResolve)
@@ -899,30 +1218,33 @@ export function resolveSegments(
     colors,
   );
   result.context = contextLine ?? "";
-  const ctxParts = formatContextParts(data, sym);
-  const ctxColor = data.contextInfo
-    ? resolveThresholdColor(
+  const ctxParts = formatContextParts(data, sym, iconVisible.context);
+  const ctxStyle = data.contextInfo
+    ? resolveThresholdStyle(
         data.contextInfo.usablePercentage,
         colors.contextFg,
+        colors.contextBold,
         colors,
       )
-    : colors.contextFg;
-  addParts(result, "context", ctxParts, ctxColor, reset, pf);
+    : { fg: colors.contextFg, bold: colors.contextBold };
+  addParts(result, "context", ctxParts, ctxStyle.fg, reset, pf, ctxStyle.bold);
 
   // Block
   if (data.blockInfo) {
     const blockColor = pf?.["block"] ?? colors.blockFg;
     result.block = colorizeOrEmpty(
-      formatBlockSegment(data.blockInfo, sym, config),
+      formatBlockSegment(data.blockInfo, sym, config, iconVisible.block),
       blockColor,
+      colors.blockBold,
     );
     addParts(
       result,
       "block",
-      formatBlockParts(data.blockInfo, sym, config),
+      formatBlockParts(data.blockInfo, sym, config, iconVisible.block),
       colors.blockFg,
       reset,
       pf,
+      colors.blockBold,
     );
   } else {
     result.block = "";
@@ -932,16 +1254,18 @@ export function resolveSegments(
   if (data.usageInfo) {
     const sessionColor = pf?.["session"] ?? colors.sessionFg;
     result.session = colorizeOrEmpty(
-      formatSessionSegment(data.usageInfo, sym, config),
+      formatSessionSegment(data.usageInfo, sym, config, iconVisible.session),
       sessionColor,
+      colors.sessionBold,
     );
     addParts(
       result,
       "session",
-      formatSessionParts(data.usageInfo, sym, config),
+      formatSessionParts(data.usageInfo, sym, config, iconVisible.session),
       colors.sessionFg,
       reset,
       pf,
+      colors.sessionBold,
     );
   } else {
     result.session = "";
@@ -951,16 +1275,18 @@ export function resolveSegments(
   if (data.todayInfo) {
     const todayColor = pf?.["today"] ?? colors.todayFg;
     result.today = colorizeOrEmpty(
-      formatTodaySegment(data.todayInfo, sym, config),
+      formatTodaySegment(data.todayInfo, sym, config, iconVisible.today),
       todayColor,
+      colors.todayBold,
     );
     addParts(
       result,
       "today",
-      formatTodayParts(data.todayInfo, sym, config),
+      formatTodayParts(data.todayInfo, sym, config, iconVisible.today),
       colors.todayFg,
       reset,
       pf,
+      colors.todayBold,
     );
   } else {
     result.today = "";
@@ -971,16 +1297,18 @@ export function resolveSegments(
   if (sevenDay) {
     const weeklyColor = pf?.["weekly"] ?? colors.weeklyFg;
     result.weekly = colorizeOrEmpty(
-      formatWeeklySegment(sevenDay, sym),
+      formatWeeklySegment(sevenDay, sym, iconVisible.weekly),
       weeklyColor,
+      colors.weeklyBold,
     );
     addParts(
       result,
       "weekly",
-      formatWeeklyParts(sevenDay, sym),
+      formatWeeklyParts(sevenDay, sym, iconVisible.weekly),
       colors.weeklyFg,
       reset,
       pf,
+      colors.weeklyBold,
     );
   } else {
     result.weekly = "";
@@ -988,46 +1316,78 @@ export function resolveSegments(
 
   // Git
   const gitColor = pf?.["git"] ?? colors.gitFg;
-  result.git = colorizeOrEmpty(formatGitSegment(data, sym), gitColor);
-  addParts(result, "git", formatGitParts(data, sym), colors.gitFg, reset, pf);
+  result.git = colorizeOrEmpty(
+    formatGitSegment(data, sym, iconVisible.git),
+    gitColor,
+    colors.gitBold,
+  );
+  addParts(
+    result,
+    "git",
+    formatGitParts(data, sym, iconVisible.git),
+    colors.gitFg,
+    reset,
+    pf,
+    colors.gitBold,
+  );
 
   // Dir
   const dirColor = pf?.["dir"] ?? colors.modeFg;
-  result.dir = colorizeOrEmpty(formatDirValue(data, config), dirColor);
+  result.dir = colorizeOrEmpty(
+    formatDirValue(data, config),
+    dirColor,
+    colors.modeBold,
+  );
   addParts(
     result,
     "dir",
-    formatDirParts(data, config, sym),
+    formatDirParts(data, config, sym, iconVisible.directory),
     colors.modeFg,
     reset,
     pf,
+    colors.modeBold,
   );
 
   // Version
   const versionColor = pf?.["version"] ?? colors.versionFg;
   result.version = colorizeOrEmpty(
-    formatVersionSegment(data, sym),
+    formatVersionSegment(data, sym, iconVisible.version),
     versionColor,
+    colors.versionBold,
   );
   addParts(
     result,
     "version",
-    formatVersionParts(data, sym),
+    formatVersionParts(data, sym, iconVisible.version),
     colors.versionFg,
     reset,
     pf,
+    colors.versionBold,
   );
 
   // Tmux
   const tmuxColor = pf?.["tmux"] ?? colors.tmuxFg;
-  result.tmux = colorizeOrEmpty(formatTmuxSegment(data), tmuxColor);
-  addParts(result, "tmux", formatTmuxParts(data), colors.tmuxFg, reset, pf);
+  result.tmux = colorizeOrEmpty(
+    formatTmuxSegment(data),
+    tmuxColor,
+    colors.tmuxBold,
+  );
+  addParts(
+    result,
+    "tmux",
+    formatTmuxParts(data),
+    colors.tmuxFg,
+    reset,
+    pf,
+    colors.tmuxBold,
+  );
 
   // Metrics
   const metricsColor = pf?.["metrics"] ?? colors.metricsFg;
   result.metrics = colorizeOrEmpty(
     formatMetricsSegment(data, sym),
     metricsColor,
+    colors.metricsBold,
   );
   addParts(
     result,
@@ -1036,6 +1396,7 @@ export function resolveSegments(
     colors.metricsFg,
     reset,
     pf,
+    colors.metricsBold,
   );
 
   // Activity
@@ -1043,6 +1404,7 @@ export function resolveSegments(
   result.activity = colorizeOrEmpty(
     formatActivitySegment(data, sym),
     activityColor,
+    colors.metricsBold,
   );
   addParts(
     result,
@@ -1051,12 +1413,81 @@ export function resolveSegments(
     colors.metricsFg,
     reset,
     pf,
+    colors.metricsBold,
   );
 
   // Env
   const envColor = pf?.["env"] ?? colors.envFg;
-  result.env = colorizeOrEmpty(formatEnvSegment(config), envColor);
-  addParts(result, "env", formatEnvParts(config), colors.envFg, reset, pf);
+  result.env = colorizeOrEmpty(
+    formatEnvSegment(config),
+    envColor,
+    colors.envBold,
+  );
+  addParts(
+    result,
+    "env",
+    formatEnvParts(config),
+    colors.envFg,
+    reset,
+    pf,
+    colors.envBold,
+  );
+
+  // Agent
+  const agentColor = pf?.["agent"] ?? colors.agentFg;
+  result.agent = colorizeOrEmpty(
+    formatAgentSegment(data, sym, config, iconVisible.agent),
+    agentColor,
+    colors.agentBold,
+  );
+  addParts(
+    result,
+    "agent",
+    formatAgentParts(data, sym, iconVisible.agent),
+    colors.agentFg,
+    reset,
+    pf,
+    colors.agentBold,
+  );
+
+  // Thinking (combined enabled + effort)
+  const thinkingSegConfig = config.display.lines
+    .map((line) => line.segments.thinking)
+    .find((t) => t?.enabled);
+  const thinkingColor = pf?.["thinking"] ?? colors.thinkingFg;
+  result.thinking = colorizeOrEmpty(
+    formatThinkingSegment(data, sym, thinkingSegConfig, iconVisible.thinking),
+    thinkingColor,
+    colors.thinkingBold,
+  );
+  addParts(
+    result,
+    "thinking",
+    formatThinkingParts(data, sym, thinkingSegConfig, iconVisible.thinking),
+    colors.thinkingFg,
+    reset,
+    pf,
+    colors.thinkingBold,
+  );
+
+  // CacheTimer
+  const cacheTimerElapsed = data.cacheTimerInfo?.elapsedSeconds ?? 0;
+  const cacheTimerStyleResolved = cacheTimerStyle(cacheTimerElapsed, colors);
+  const cacheTimerColor = pf?.["cacheTimer"] ?? cacheTimerStyleResolved.fg;
+  result.cacheTimer = colorizeOrEmpty(
+    formatCacheTimerSegment(data, sym, iconVisible.cacheTimer),
+    cacheTimerColor,
+    cacheTimerStyleResolved.bold,
+  );
+  addParts(
+    result,
+    "cacheTimer",
+    formatCacheTimerParts(data, sym, iconVisible.cacheTimer),
+    cacheTimerStyleResolved.fg,
+    reset,
+    pf,
+    cacheTimerStyleResolved.bold,
+  );
 
   // Apply segment templates: resolve items and compose default value
   const templates: Record<string, ResolvedTemplate> = {};

@@ -18,9 +18,13 @@ import type {
   SessionIdSegmentConfig,
   EnvSegmentConfig,
   WeeklySegmentConfig,
+  AgentSegmentConfig,
+  ThinkingSegmentConfig,
+  CacheTimerSegmentConfig,
 } from "./segments";
 import type { BlockInfo } from "./segments/block";
 import type { TodayInfo } from "./segments/today";
+import type { CacheTimerInfo } from "./segments/cacheTimer";
 import type { TuiData } from "./tui";
 
 import {
@@ -42,6 +46,7 @@ import {
 } from "./segments";
 import { BlockProvider } from "./segments/block";
 import { TodayProvider } from "./segments/today";
+import { CacheTimerProvider } from "./segments/cacheTimer";
 import {
   SYMBOLS,
   TEXT_SYMBOLS,
@@ -58,6 +63,7 @@ interface RenderedSegment {
   text: string;
   bgColor: string;
   fgColor: string;
+  bold?: boolean;
 }
 
 export class PowerlineRenderer {
@@ -69,6 +75,7 @@ export class PowerlineRenderer {
   private _gitService?: GitService;
   private _tmuxService?: TmuxService;
   private _metricsProvider?: MetricsProvider;
+  private _cacheTimerProvider?: CacheTimerProvider;
   private _segmentRenderer?: SegmentRenderer;
 
   constructor(private readonly config: PowerlineConfig) {
@@ -124,6 +131,13 @@ export class PowerlineRenderer {
     return this._metricsProvider;
   }
 
+  private get cacheTimerProvider(): CacheTimerProvider {
+    if (!this._cacheTimerProvider) {
+      this._cacheTimerProvider = new CacheTimerProvider();
+    }
+    return this._cacheTimerProvider;
+  }
+
   private get segmentRenderer(): SegmentRenderer {
     if (!this._segmentRenderer) {
       this._segmentRenderer = new SegmentRenderer(this.config, this.symbols);
@@ -166,6 +180,10 @@ export class PowerlineRenderer {
       ? await this.metricsProvider.getMetricsInfo(hookData.session_id, hookData)
       : null;
 
+    const cacheTimerInfo = this.needsSegmentInfo("cacheTimer")
+      ? await this.cacheTimerProvider.getCacheTimerInfo(hookData)
+      : null;
+
     if (this.config.display.autoWrap) {
       return this.generateAutoWrapStatusline(
         hookData,
@@ -174,6 +192,7 @@ export class PowerlineRenderer {
         todayInfo,
         contextInfo,
         metricsInfo,
+        cacheTimerInfo,
       );
     }
 
@@ -187,6 +206,7 @@ export class PowerlineRenderer {
           todayInfo,
           contextInfo,
           metricsInfo,
+          cacheTimerInfo,
         ),
       ),
     );
@@ -201,6 +221,7 @@ export class PowerlineRenderer {
     todayInfo: TodayInfo | null,
     contextInfo: ContextInfo | null,
     metricsInfo: MetricsInfo | null,
+    cacheTimerInfo: CacheTimerInfo | null,
   ): Promise<string> {
     const colors = this.getThemeColors();
     const currentDir = hookData.workspace?.current_dir || hookData.cwd || "/";
@@ -229,6 +250,7 @@ export class PowerlineRenderer {
           todayInfo,
           contextInfo,
           metricsInfo,
+          cacheTimerInfo,
           colors,
           currentDir,
         );
@@ -239,6 +261,7 @@ export class PowerlineRenderer {
             text: segmentData.text,
             bgColor: segmentData.bgColor,
             fgColor: segmentData.fgColor,
+            bold: segmentData.bold,
           });
         }
       }
@@ -318,6 +341,7 @@ export class PowerlineRenderer {
         hookData.workspace?.project_dir,
       ),
       this.tmuxService.getSessionId(),
+      this.cacheTimerProvider.getCacheTimerInfo(hookData),
     ]);
     const val = <T>(r: PromiseSettledResult<T>) =>
       r.status === "fulfilled" ? r.value : null;
@@ -329,6 +353,7 @@ export class PowerlineRenderer {
       metricsInfo,
       gitInfo,
       tmuxSessionId,
+      cacheTimerInfo,
     ] = [
       val(results[0]!),
       val(results[1]!),
@@ -337,6 +362,7 @@ export class PowerlineRenderer {
       val(results[4]!),
       val(results[5]!),
       val(results[6]!),
+      val(results[7]!),
     ] as const;
 
     const tuiData: TuiData = {
@@ -347,6 +373,7 @@ export class PowerlineRenderer {
       contextInfo,
       metricsInfo,
       gitInfo,
+      cacheTimerInfo,
       tmuxSessionId,
       colors,
     };
@@ -398,12 +425,16 @@ export class PowerlineRenderer {
         line += " ";
       }
 
+      const bold =
+        segment.bold ?? this.getSegmentBoldFlag(segment.type, colors);
+
       line += this.formatSegment(
         segment.bgColor,
         segment.fgColor,
         segment.text,
         nextSegment?.bgColor,
         colors,
+        bold,
       );
     }
 
@@ -418,6 +449,7 @@ export class PowerlineRenderer {
     todayInfo: TodayInfo | null,
     contextInfo: ContextInfo | null,
     metricsInfo: MetricsInfo | null,
+    cacheTimerInfo: CacheTimerInfo | null,
   ): Promise<string> {
     const colors = this.getThemeColors();
     const currentDir = hookData.workspace?.current_dir || hookData.cwd || "/";
@@ -439,6 +471,7 @@ export class PowerlineRenderer {
         todayInfo,
         contextInfo,
         metricsInfo,
+        cacheTimerInfo,
         colors,
         currentDir,
       );
@@ -449,6 +482,7 @@ export class PowerlineRenderer {
           text: segmentData.text,
           bgColor: segmentData.bgColor,
           fgColor: segmentData.fgColor,
+          bold: segmentData.bold,
         });
       }
     }
@@ -464,6 +498,7 @@ export class PowerlineRenderer {
     todayInfo: TodayInfo | null,
     contextInfo: ContextInfo | null,
     metricsInfo: MetricsInfo | null,
+    cacheTimerInfo: CacheTimerInfo | null,
     colors: PowerlineColors,
     currentDir: string,
   ) {
@@ -475,7 +510,7 @@ export class PowerlineRenderer {
       );
     }
     if (segment.type === "model") {
-      return this.segmentRenderer.renderModel(hookData, colors);
+      return this.segmentRenderer.renderModel(hookData, colors, segment.config);
     }
 
     if (segment.type === "git") {
@@ -565,6 +600,31 @@ export class PowerlineRenderer {
       );
     }
 
+    if (segment.type === "agent") {
+      return this.segmentRenderer.renderAgent(
+        hookData,
+        colors,
+        segment.config as AgentSegmentConfig,
+      );
+    }
+
+    if (segment.type === "thinking") {
+      return this.segmentRenderer.renderThinking(
+        hookData,
+        colors,
+        segment.config as ThinkingSegmentConfig,
+      );
+    }
+
+    if (segment.type === "cacheTimer") {
+      if (!cacheTimerInfo) return null;
+      return this.segmentRenderer.renderCacheTimer(
+        cacheTimerInfo,
+        colors,
+        segment.config as CacheTimerSegmentConfig,
+      );
+    }
+
     return null;
   }
 
@@ -644,8 +704,7 @@ export class PowerlineRenderer {
     colors: PowerlineColors,
   ) {
     if (!todayInfo) return null;
-    const todayType = config?.type || "cost";
-    return this.segmentRenderer.renderToday(todayInfo, colors, todayType);
+    return this.segmentRenderer.renderToday(todayInfo, colors, config);
   }
 
   private renderVersionSegment(
@@ -700,6 +759,9 @@ export class PowerlineRenderer {
       env: symbolSet.env,
       session_id: symbolSet.session_id,
       weekly_cost: symbolSet.weekly_cost,
+      agent: symbolSet.agent,
+      thinking: symbolSet.thinking,
+      cache_timer: symbolSet.cache_timer,
     };
   }
 
@@ -753,9 +815,13 @@ export class PowerlineRenderer {
         fgHex = colors.bg;
       }
 
+      const bold =
+        colorSupport !== "none" && Boolean(custom?.bold ?? fallback.bold);
+
       return {
         bg: convertHex(colors.bg, true),
         fg: convertHex(fgHex, false),
+        bold,
       };
     };
 
@@ -773,37 +839,63 @@ export class PowerlineRenderer {
     const version = getSegmentColors("version");
     const env = getSegmentColors("env");
     const weekly = getSegmentColors("weekly");
+    const agent = getSegmentColors("agent");
+    const thinking = getSegmentColors("thinking");
+    const cacheTimer = getSegmentColors("cacheTimer");
 
     return {
       reset: colorSupport === "none" ? "" : RESET_CODE,
       modeBg: directory.bg,
       modeFg: directory.fg,
+      modeBold: directory.bold,
       gitBg: git.bg,
       gitFg: git.fg,
+      gitBold: git.bold,
       modelBg: model.bg,
       modelFg: model.fg,
+      modelBold: model.bold,
       sessionBg: session.bg,
       sessionFg: session.fg,
+      sessionBold: session.bold,
       blockBg: block.bg,
       blockFg: block.fg,
+      blockBold: block.bold,
       todayBg: today.bg,
       todayFg: today.fg,
+      todayBold: today.bold,
       tmuxBg: tmux.bg,
       tmuxFg: tmux.fg,
+      tmuxBold: tmux.bold,
       contextBg: context.bg,
       contextFg: context.fg,
+      contextBold: context.bold,
       contextWarningBg: contextWarning.bg,
       contextWarningFg: contextWarning.fg,
+      contextWarningBold: contextWarning.bold,
       contextCriticalBg: contextCritical.bg,
       contextCriticalFg: contextCritical.fg,
+      contextCriticalBold: contextCritical.bold,
       metricsBg: metrics.bg,
       metricsFg: metrics.fg,
+      metricsBold: metrics.bold,
       versionBg: version.bg,
       versionFg: version.fg,
+      versionBold: version.bold,
       envBg: env.bg,
       envFg: env.fg,
+      envBold: env.bold,
       weeklyBg: weekly.bg,
       weeklyFg: weekly.fg,
+      weeklyBold: weekly.bold,
+      agentBg: agent.bg,
+      agentFg: agent.fg,
+      agentBold: agent.bold,
+      thinkingBg: thinking.bg,
+      thinkingFg: thinking.fg,
+      thinkingBold: thinking.bold,
+      cacheTimerBg: cacheTimer.bg,
+      cacheTimerFg: cacheTimer.fg,
+      cacheTimerBold: cacheTimer.bold,
       partFg: theme === "custom" ? this.resolvePartColors(convertHex) : {},
     };
   }
@@ -855,8 +947,55 @@ export class PowerlineRenderer {
         return colors.envBg;
       case "weekly":
         return colors.weeklyBg;
+      case "agent":
+        return colors.agentBg;
+      case "thinking":
+        return colors.thinkingBg;
+      case "cacheTimer":
+        return colors.cacheTimerBg;
       default:
         return colors.modeBg;
+    }
+  }
+
+  private getSegmentBoldFlag(
+    segmentType: string,
+    colors: PowerlineColors,
+  ): boolean {
+    switch (segmentType) {
+      case "directory":
+        return colors.modeBold;
+      case "git":
+        return colors.gitBold;
+      case "model":
+        return colors.modelBold;
+      case "session":
+      case "sessionId":
+        return colors.sessionBold;
+      case "block":
+        return colors.blockBold;
+      case "today":
+        return colors.todayBold;
+      case "tmux":
+        return colors.tmuxBold;
+      case "context":
+        return colors.contextBold;
+      case "metrics":
+        return colors.metricsBold;
+      case "version":
+        return colors.versionBold;
+      case "env":
+        return colors.envBold;
+      case "weekly":
+        return colors.weeklyBold;
+      case "agent":
+        return colors.agentBold;
+      case "thinking":
+        return colors.thinkingBold;
+      case "cacheTimer":
+        return colors.cacheTimerBold;
+      default:
+        return colors.modeBold;
     }
   }
 
@@ -866,9 +1005,13 @@ export class PowerlineRenderer {
     text: string,
     nextBgColor: string | undefined,
     colors: PowerlineColors,
+    bold: boolean,
   ): string {
     const isCapsuleStyle = this.config.display.style === "capsule";
     const padding = " ".repeat(this.config.display.padding ?? 1);
+    const useBold = bold && colors.reset !== "";
+    const boldOn = useBold ? "\x1b[1m" : "";
+    const boldOff = useBold ? "\x1b[22m" : "";
 
     if (isCapsuleStyle) {
       const colorMode = this.config.display.colorCompatibility || "auto";
@@ -879,14 +1022,14 @@ export class PowerlineRenderer {
 
       const leftCap = `${capFgColor}${this.symbols.left}${colors.reset}`;
 
-      const content = `${bgColor}${fgColor}${padding}${text}${padding}${colors.reset}`;
+      const content = `${bgColor}${fgColor}${boldOn}${padding}${text}${padding}${boldOff}${colors.reset}`;
 
       const rightCap = `${capFgColor}${this.symbols.right}${colors.reset}`;
 
       return `${leftCap}${content}${rightCap}`;
     }
 
-    let output = `${bgColor}${fgColor}${padding}${text}${padding}`;
+    let output = `${bgColor}${fgColor}${boldOn}${padding}${text}${padding}${boldOff}`;
 
     const colorMode = this.config.display.colorCompatibility || "auto";
     const colorSupport = colorMode === "auto" ? getColorSupport() : colorMode;

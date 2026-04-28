@@ -1,7 +1,9 @@
 import type { ClaudeHookData } from "../utils/claude";
+import { getEffortLevel, getThinkingEnabled } from "../utils/claude";
 import type { PowerlineColors } from "../themes";
 import type { PowerlineConfig } from "../config/loader";
 import type { BlockInfo } from "./block";
+import type { CacheTimerInfo } from "./cacheTimer";
 import type {
   UsageInfo,
   TokenBreakdown,
@@ -20,13 +22,17 @@ import {
   formatTimeSince,
   formatDuration,
   formatLongTimeRemaining,
+  formatCacheTimerElapsed,
   collapseHome,
   minutesUntilReset,
 } from "../utils/formatters";
-import { getBudgetStatus } from "../utils/budget";
+import { resolveBudgetDisplay } from "../utils/budget";
+import type { BudgetItemConfig } from "../config/loader";
+import { shouldShowIcon } from "../utils/icon-visibility";
 
 export interface SegmentConfig {
   enabled: boolean;
+  showIcon?: boolean;
 }
 
 export interface DirectorySegmentConfig extends SegmentConfig {
@@ -107,6 +113,17 @@ export interface WeeklySegmentConfig extends SegmentConfig {
   displayStyle?: BarDisplayStyle;
 }
 
+export interface AgentSegmentConfig extends SegmentConfig {
+  showLabel?: boolean;
+}
+
+export interface ThinkingSegmentConfig extends SegmentConfig {
+  showEnabled?: boolean;
+  showEffort?: boolean;
+}
+
+export interface CacheTimerSegmentConfig extends SegmentConfig {}
+
 export type AnySegmentConfig =
   | SegmentConfig
   | DirectorySegmentConfig
@@ -120,7 +137,10 @@ export type AnySegmentConfig =
   | VersionSegmentConfig
   | SessionIdSegmentConfig
   | EnvSegmentConfig
-  | WeeklySegmentConfig;
+  | WeeklySegmentConfig
+  | AgentSegmentConfig
+  | ThinkingSegmentConfig
+  | CacheTimerSegmentConfig;
 
 export interface PowerlineSymbols {
   right: string;
@@ -155,12 +175,16 @@ export interface PowerlineSymbols {
   env: string;
   session_id: string;
   weekly_cost: string;
+  agent: string;
+  thinking: string;
+  cache_timer: string;
 }
 
 export interface SegmentData {
   text: string;
   bgColor: string;
   fgColor: string;
+  bold?: boolean;
 }
 
 interface BarStyleDef {
@@ -188,13 +212,24 @@ export class SegmentRenderer {
     private readonly symbols: PowerlineSymbols,
   ) {}
 
+  private leadingIcon(symbol: string, segConfig?: SegmentConfig): string {
+    const show = shouldShowIcon(
+      this.config.display?.showIcons,
+      segConfig?.showIcon,
+    );
+    return show ? `${symbol} ` : "";
+  }
+
   renderDirectory(
     hookData: ClaudeHookData,
     colors: PowerlineColors,
     config?: DirectorySegmentConfig,
   ): SegmentData {
-    const currentDir = hookData.workspace?.current_dir || hookData.cwd || "/";
-    const projectDir = hookData.workspace?.project_dir;
+    const worktreeOriginalCwd = hookData.worktree?.original_cwd || undefined;
+    const currentDir =
+      worktreeOriginalCwd ??
+      (hookData.workspace?.current_dir || hookData.cwd || "/");
+    const projectDir = worktreeOriginalCwd ?? hookData.workspace?.project_dir;
 
     const style = config?.style ?? (config?.showBasename ? "basename" : "full");
 
@@ -245,7 +280,15 @@ export class SegmentRenderer {
       parts.push(`[${gitInfo.operation}]`);
     }
 
-    parts.push(`${this.symbols.branch} ${gitInfo.branch}`);
+    const showBranchIcon = shouldShowIcon(
+      this.config.display?.showIcons,
+      config?.showIcon,
+    );
+    parts.push(
+      showBranchIcon
+        ? `${this.symbols.branch} ${gitInfo.branch}`
+        : gitInfo.branch,
+    );
 
     if (config?.showTag && gitInfo.tag) {
       parts.push(`${this.symbols.git_tag} ${gitInfo.tag}`);
@@ -314,12 +357,16 @@ export class SegmentRenderer {
     };
   }
 
-  renderModel(hookData: ClaudeHookData, colors: PowerlineColors): SegmentData {
+  renderModel(
+    hookData: ClaudeHookData,
+    colors: PowerlineColors,
+    config?: SegmentConfig,
+  ): SegmentData {
     const rawName = hookData.model?.display_name || "Claude";
     const modelName = formatModelName(rawName);
 
     return {
-      text: `${this.symbols.model} ${modelName}`,
+      text: `${this.leadingIcon(this.symbols.model, config)}${modelName}`,
       bgColor: colors.modelBg,
       fgColor: colors.modelFg,
     };
@@ -329,7 +376,7 @@ export class SegmentRenderer {
     usageInfo: UsageInfo,
     colors: PowerlineColors,
     config?: UsageSegmentConfig,
-  ): SegmentData {
+  ): SegmentData | null {
     const type = config?.type || "cost";
     const costSource = config?.costSource;
     const sessionBudget = this.config.budget?.session;
@@ -345,12 +392,12 @@ export class SegmentRenderer {
       usageInfo.session.tokens,
       usageInfo.session.tokenBreakdown,
       type,
-      sessionBudget?.amount,
-      sessionBudget?.warningThreshold || 80,
-      sessionBudget?.type,
+      sessionBudget,
     );
 
-    const text = `${this.symbols.session_cost} ${formattedUsage}`;
+    if (formattedUsage === null) return null;
+
+    const text = `${this.leadingIcon(this.symbols.session_cost, config)}${formattedUsage}`;
 
     return {
       text,
@@ -366,7 +413,7 @@ export class SegmentRenderer {
   ): SegmentData {
     const showLabel = config?.showIdLabel !== false;
     const text = showLabel
-      ? `${this.symbols.session_id} ${sessionId}`
+      ? `${this.leadingIcon(this.symbols.session_id, config)}${sessionId}`
       : sessionId;
 
     return {
@@ -418,7 +465,7 @@ export class SegmentRenderer {
         };
       }
       return {
-        text: `${this.symbols.context_time} 0 (${emptyPct})`,
+        text: `${this.leadingIcon(this.symbols.context_time, config)}0 (${emptyPct})`,
         bgColor: colors.contextBg,
         fgColor: colors.contextFg,
       };
@@ -426,13 +473,16 @@ export class SegmentRenderer {
 
     let bgColor = colors.contextBg;
     let fgColor = colors.contextFg;
+    let bold = colors.contextBold;
 
     if (contextInfo.contextLeftPercentage <= 20) {
       bgColor = colors.contextCriticalBg;
       fgColor = colors.contextCriticalFg;
+      bold = colors.contextCriticalBold;
     } else if (contextInfo.contextLeftPercentage <= 40) {
       bgColor = colors.contextWarningBg;
       fgColor = colors.contextWarningFg;
+      bold = colors.contextWarningBold;
     }
 
     const pct =
@@ -456,14 +506,15 @@ export class SegmentRenderer {
         ? `${bar} ${pct}%`
         : `${bar} ${contextInfo.totalTokens.toLocaleString()} (${pct}%)`;
 
-      return { text, bgColor, fgColor };
+      return { text, bgColor, fgColor, bold };
     }
 
+    const iconPrefix = this.leadingIcon(this.symbols.context_time, config);
     const text = config?.showPercentageOnly
-      ? `${this.symbols.context_time} ${pct}%`
-      : `${this.symbols.context_time} ${contextInfo.totalTokens.toLocaleString()} (${pct}%)`;
+      ? `${iconPrefix}${pct}%`
+      : `${iconPrefix}${contextInfo.totalTokens.toLocaleString()} (${pct}%)`;
 
-    return { text, bgColor, fgColor };
+    return { text, bgColor, fgColor, bold };
   }
 
   private buildBar(
@@ -619,18 +670,22 @@ export class SegmentRenderer {
 
     let bgColor = colors.blockBg;
     let fgColor = colors.blockFg;
+    let bold = colors.blockBold;
     if (pct >= warningThreshold) {
       bgColor = colors.contextCriticalBg;
       fgColor = colors.contextCriticalFg;
+      bold = colors.contextCriticalBold;
     } else if (pct >= 50) {
       bgColor = colors.contextWarningBg;
       fgColor = colors.contextWarningFg;
+      bold = colors.contextWarningBold;
     }
 
     return {
-      text: `${this.symbols.block_cost} ${this.formatPercentageWithBar(pct, config?.displayStyle, timeStr)}`,
+      text: `${this.leadingIcon(this.symbols.block_cost, config)}${this.formatPercentageWithBar(pct, config?.displayStyle, timeStr)}`,
       bgColor,
       fgColor,
+      bold,
     };
   }
 
@@ -649,36 +704,47 @@ export class SegmentRenderer {
 
     let bgColor = colors.weeklyBg;
     let fgColor = colors.weeklyFg;
+    let bold = colors.weeklyBold;
     if (pct >= 80) {
       bgColor = colors.contextCriticalBg;
       fgColor = colors.contextCriticalFg;
+      bold = colors.contextCriticalBold;
     } else if (pct >= 50) {
       bgColor = colors.contextWarningBg;
       fgColor = colors.contextWarningFg;
+      bold = colors.contextWarningBold;
     }
 
     return {
-      text: `${this.symbols.weekly_cost} ${this.formatPercentageWithBar(pct, config?.displayStyle, timeStr)}`,
+      text: `${this.leadingIcon(this.symbols.weekly_cost, config)}${this.formatPercentageWithBar(pct, config?.displayStyle, timeStr)}`,
       bgColor,
       fgColor,
+      bold,
     };
   }
 
   renderToday(
     todayInfo: TodayInfo,
     colors: PowerlineColors,
-    type = "cost",
-  ): SegmentData {
+    configOrType?: TodaySegmentConfig | string,
+  ): SegmentData | null {
+    const config: TodaySegmentConfig | undefined =
+      typeof configOrType === "string"
+        ? ({ enabled: true, type: configOrType } as TodaySegmentConfig)
+        : configOrType;
+    const type = config?.type ?? "cost";
     const todayBudget = this.config.budget?.today;
-    const text = `${this.symbols.today_cost} ${this.formatUsageWithBudget(
+    const formattedUsage = this.formatUsageWithBudget(
       todayInfo.cost,
       todayInfo.tokens,
       todayInfo.tokenBreakdown,
       type,
-      todayBudget?.amount,
-      todayBudget?.warningThreshold,
-      todayBudget?.type,
-    )}`;
+      todayBudget,
+    );
+
+    if (formattedUsage === null) return null;
+
+    const text = `${this.leadingIcon(this.symbols.today_cost, config)}${formattedUsage}`;
 
     return {
       text,
@@ -730,52 +796,34 @@ export class SegmentRenderer {
     tokens: number | null,
     tokenBreakdown: TokenBreakdown | null,
     type: string,
-    budget: number | undefined,
-    warningThreshold = 80,
-    budgetType?: "cost" | "tokens",
-  ): string {
+    budget?: BudgetItemConfig,
+  ): string | null {
+    const state = resolveBudgetDisplay(cost, tokens, budget);
+    if (state.suppressAll) return null;
+    if (!state.showBase) return state.percentText;
+
     const baseDisplay = this.formatUsageDisplay(
       cost,
       tokens,
       tokenBreakdown,
       type,
     );
-
-    if (budget && budget > 0) {
-      let budgetValue: number | null = null;
-
-      if (budgetType === "tokens" && tokens !== null) {
-        budgetValue = tokens;
-      } else if (budgetType === "cost" && cost !== null) {
-        budgetValue = cost;
-      } else if (!budgetType && cost !== null) {
-        budgetValue = cost;
-      }
-
-      if (budgetValue !== null) {
-        const budgetStatus = getBudgetStatus(
-          budgetValue,
-          budget,
-          warningThreshold,
-        );
-        return baseDisplay + budgetStatus.displayText;
-      }
-    }
-
-    return baseDisplay;
+    return state.percentText
+      ? `${baseDisplay} ${state.percentText}`
+      : baseDisplay;
   }
 
   renderVersion(
     hookData: ClaudeHookData,
     colors: PowerlineColors,
-    _config?: VersionSegmentConfig,
+    config?: VersionSegmentConfig,
   ): SegmentData | null {
     if (!hookData.version) {
       return null;
     }
 
     return {
-      text: `${this.symbols.version} v${hookData.version}`,
+      text: `${this.leadingIcon(this.symbols.version, config)}v${hookData.version}`,
       bgColor: colors.versionBg,
       fgColor: colors.versionFg,
     };
@@ -788,9 +836,80 @@ export class SegmentRenderer {
     const value = globalThis.process?.env?.[config.variable];
     if (!value) return null;
     const prefix = config.prefix ?? config.variable;
+    const iconPrefix = this.leadingIcon(this.symbols.env, config);
     const text = prefix
-      ? `${this.symbols.env} ${prefix}: ${value}`
-      : `${this.symbols.env} ${value}`;
+      ? `${iconPrefix}${prefix}: ${value}`
+      : `${iconPrefix}${value}`;
     return { text, bgColor: colors.envBg, fgColor: colors.envFg };
+  }
+
+  renderAgent(
+    hookData: ClaudeHookData,
+    colors: PowerlineColors,
+    config?: AgentSegmentConfig,
+  ): SegmentData | null {
+    const rawName = hookData.agent?.name;
+    if (typeof rawName !== "string") return null;
+    const name = rawName.trim();
+    if (!name) return null;
+
+    const iconPrefix = this.leadingIcon(this.symbols.agent, config);
+    const body = config?.showLabel ? `agent: ${name}` : name;
+
+    return {
+      text: `${iconPrefix}${body}`,
+      bgColor: colors.agentBg,
+      fgColor: colors.agentFg,
+    };
+  }
+
+  renderThinking(
+    hookData: ClaudeHookData,
+    colors: PowerlineColors,
+    config?: ThinkingSegmentConfig,
+  ): SegmentData | null {
+    const showEnabled = config?.showEnabled ?? true;
+    const showEffort = config?.showEffort ?? true;
+    if (!showEnabled && !showEffort) return null;
+
+    const enabled = showEnabled ? getThinkingEnabled(hookData) : null;
+    const level = showEffort ? getEffortLevel(hookData) : null;
+
+    const parts: string[] = [];
+    if (enabled !== null) parts.push(enabled ? "On" : "Off");
+    if (level) parts.push(level);
+    if (parts.length === 0) return null;
+
+    const iconPrefix = this.leadingIcon(this.symbols.thinking, config);
+    return {
+      text: `${iconPrefix}${parts.join(" · ")}`,
+      bgColor: colors.thinkingBg,
+      fgColor: colors.thinkingFg,
+    };
+  }
+
+  renderCacheTimer(
+    info: CacheTimerInfo,
+    colors: PowerlineColors,
+    config?: CacheTimerSegmentConfig,
+  ): SegmentData {
+    const e = info.elapsedSeconds;
+    const iconPrefix = this.leadingIcon(this.symbols.cache_timer, config);
+    const text = `${iconPrefix}${formatCacheTimerElapsed(e)}`;
+
+    let bgColor = colors.cacheTimerBg;
+    let fgColor = colors.cacheTimerFg;
+    let bold = colors.cacheTimerBold;
+    if (e >= 300) {
+      bgColor = colors.contextCriticalBg;
+      fgColor = colors.contextCriticalFg;
+      bold = colors.contextCriticalBold;
+    } else if (e >= 180) {
+      bgColor = colors.contextWarningBg;
+      fgColor = colors.contextWarningFg;
+      bold = colors.contextWarningBold;
+    }
+
+    return { text, bgColor, fgColor, bold };
   }
 }

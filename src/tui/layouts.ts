@@ -1,6 +1,7 @@
 import type { RenderCtx } from "./types";
 
 import { formatCost } from "../utils/formatters";
+import { resolveIconVisibility } from "../utils/icon-visibility";
 import {
   contentRow,
   divider,
@@ -51,7 +52,7 @@ export function renderWideBottom(ctx: RenderCtx): void {
     reset,
     colors,
   } = ctx;
-  const leftParts = collectWorkspaceParts(data, sym, reset, colors);
+  const leftParts = collectWorkspaceParts(data, sym, reset, colors, config);
   const rightParts = collectFooterParts(data, sym, config, reset, colors);
 
   const leftStr = leftParts.join("  ");
@@ -82,27 +83,39 @@ export function renderMediumMetrics(ctx: RenderCtx): void {
   const line1Parts: string[] = [];
   const line2Parts: string[] = [];
 
+  const showBlockIcon = resolveIconVisibility(config, "block");
+  const showWeeklyIcon = resolveIconVisibility(config, "weekly");
+  const showTodayIcon = resolveIconVisibility(config, "today");
+  const showSessionIcon = resolveIconVisibility(config, "session");
+
   if (data.blockInfo) {
     line1Parts.push(
       colorize(
-        formatBlockSegment(data.blockInfo, sym, config),
+        formatBlockSegment(data.blockInfo, sym, config, showBlockIcon),
         colors.blockFg,
         reset,
+        colors.blockBold,
       ),
     );
   }
   const sevenDay = data.hookData.rate_limits?.seven_day;
   if (sevenDay) {
     line1Parts.push(
-      colorize(formatWeeklySegment(sevenDay, sym), colors.weeklyFg, reset),
+      colorize(
+        formatWeeklySegment(sevenDay, sym, showWeeklyIcon),
+        colors.weeklyFg,
+        reset,
+        colors.weeklyBold,
+      ),
     );
   }
   if (data.todayInfo) {
     line1Parts.push(
       colorize(
-        formatTodaySegment(data.todayInfo, sym, config),
+        formatTodaySegment(data.todayInfo, sym, config, showTodayIcon),
         colors.todayFg,
         reset,
+        colors.todayBold,
       ),
     );
   }
@@ -110,16 +123,22 @@ export function renderMediumMetrics(ctx: RenderCtx): void {
   if (data.usageInfo) {
     line2Parts.push(
       colorize(
-        formatSessionSegment(data.usageInfo, sym, config),
+        formatSessionSegment(data.usageInfo, sym, config, showSessionIcon),
         colors.sessionFg,
         reset,
+        colors.sessionBold,
       ),
     );
   }
   const activityParts = collectActivityParts(data, sym);
   if (activityParts.length > 0) {
     line2Parts.push(
-      colorize(activityParts.join(" · "), colors.metricsFg, reset),
+      colorize(
+        activityParts.join(" · "),
+        colors.metricsFg,
+        reset,
+        colors.metricsBold,
+      ),
     );
   }
 
@@ -151,7 +170,13 @@ export function renderMediumBottom(ctx: RenderCtx): void {
     reset,
     colors,
   } = ctx;
-  const workspaceParts = collectWorkspaceParts(data, sym, reset, colors);
+  const workspaceParts = collectWorkspaceParts(
+    data,
+    sym,
+    reset,
+    colors,
+    config,
+  );
   if (workspaceParts.length > 0) {
     lines.push(divider(box, innerWidth));
     lines.push(
@@ -188,14 +213,20 @@ export function renderNarrowMetrics(ctx: RenderCtx): void {
     reset,
     colors,
   } = ctx;
+  const showBlockIcon = resolveIconVisibility(config, "block");
+  const showWeeklyIcon = resolveIconVisibility(config, "weekly");
+  const showSessionIcon = resolveIconVisibility(config, "session");
+  const showTodayIcon = resolveIconVisibility(config, "today");
+
   if (data.blockInfo) {
     lines.push(
       contentRow(
         box,
         colorize(
-          formatBlockSegment(data.blockInfo, sym, config),
+          formatBlockSegment(data.blockInfo, sym, config, showBlockIcon),
           colors.blockFg,
           reset,
+          colors.blockBold,
         ),
         innerWidth,
       ),
@@ -207,9 +238,10 @@ export function renderNarrowMetrics(ctx: RenderCtx): void {
       contentRow(
         box,
         colorize(
-          formatWeeklySegment(narrowSevenDay, sym),
+          formatWeeklySegment(narrowSevenDay, sym, showWeeklyIcon),
           colors.weeklyFg,
           reset,
+          colors.weeklyBold,
         ),
         innerWidth,
       ),
@@ -218,21 +250,19 @@ export function renderNarrowMetrics(ctx: RenderCtx): void {
 
   const sessionAndToday: string[] = [];
   if (data.usageInfo) {
+    const sessionText = showSessionIcon
+      ? `${sym.session_cost} ${formatCost(data.usageInfo.session.cost)}`
+      : formatCost(data.usageInfo.session.cost);
     sessionAndToday.push(
-      colorize(
-        `${sym.session_cost} ${formatCost(data.usageInfo.session.cost)}`,
-        colors.sessionFg,
-        reset,
-      ),
+      colorize(sessionText, colors.sessionFg, reset, colors.sessionBold),
     );
   }
   if (data.todayInfo) {
+    const todayText = showTodayIcon
+      ? `${sym.today_cost} ${formatCost(data.todayInfo.cost)} today`
+      : `${formatCost(data.todayInfo.cost)} today`;
     sessionAndToday.push(
-      colorize(
-        `${sym.today_cost} ${formatCost(data.todayInfo.cost)} today`,
-        colors.todayFg,
-        reset,
-      ),
+      colorize(todayText, colors.todayFg, reset, colors.todayBold),
     );
   }
   if (sessionAndToday.length > 0) {
@@ -262,7 +292,13 @@ export function renderNarrowBottom(ctx: RenderCtx): void {
     reset,
     colors,
   } = ctx;
-  const workspaceParts = collectWorkspaceParts(data, sym, reset, colors);
+  const workspaceParts = collectWorkspaceParts(
+    data,
+    sym,
+    reset,
+    colors,
+    config,
+  );
   if (workspaceParts.length > 0) {
     lines.push(divider(box, innerWidth));
     lines.push(
