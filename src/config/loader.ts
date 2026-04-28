@@ -20,6 +20,9 @@ import type {
   SessionIdSegmentConfig,
   EnvSegmentConfig,
   WeeklySegmentConfig,
+  AgentSegmentConfig,
+  ThinkingSegmentConfig,
+  CacheTimerSegmentConfig,
 } from "../segments/renderer";
 
 export interface LineConfig {
@@ -37,6 +40,9 @@ export interface LineConfig {
     sessionId?: SessionIdSegmentConfig;
     env?: EnvSegmentConfig;
     weekly?: WeeklySegmentConfig;
+    agent?: AgentSegmentConfig;
+    thinking?: ThinkingSegmentConfig;
+    cacheTimer?: CacheTimerSegmentConfig;
   };
 }
 
@@ -47,6 +53,7 @@ export interface DisplayConfig {
   colorCompatibility?: "auto" | "ansi" | "ansi256" | "truecolor";
   autoWrap?: boolean;
   padding?: number;
+  showIcons?: boolean;
   tui?: TuiGridConfig;
 }
 
@@ -54,6 +61,8 @@ export interface BudgetItemConfig {
   amount?: number;
   warningThreshold?: number;
   type?: "cost" | "tokens";
+  showPercentage?: boolean;
+  showValue?: boolean;
 }
 
 export interface BudgetConfig {

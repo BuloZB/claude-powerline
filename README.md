@@ -140,6 +140,8 @@ export CLAUDE_POWERLINE_DEBUG=1  # Enable debug logging
   - `fish`: Fish-shell style abbreviation (e.g., `~/p/claude-powerline`)
   - `basename`: Show only folder name (e.g., `claude-powerline`)
 
+In `--worktree` sessions, the directory segment automatically shows the original repo path instead of the worktree folder (no config required).
+
 </details>
 
 <details>
@@ -389,6 +391,76 @@ Only visible when Claude Code provides native `rate_limits.seven_day` data (Clau
 </details>
 
 <details>
+<summary><strong>Agent</strong> - Shows active subagent name when Claude Code is invoked with <code>--agent</code> (hidden otherwise)</summary>
+
+```json
+"agent": {
+  "enabled": true,
+  "showLabel": false
+}
+```
+
+**Display:** `◇ researcher` (or `◇ agent: researcher` with `showLabel: true`)
+
+**Symbols:** `◇` Agent (unicode) &#8226; `&` Agent (text)
+
+</details>
+
+<details>
+<summary><strong>Thinking</strong> - Shows extended-thinking on/off state and/or reasoning effort level when provided by Claude Code</summary>
+
+```json
+"thinking": {
+  "enabled": true,
+  "showEnabled": true,
+  "showEffort": true
+}
+```
+
+Set `showEnabled: false` to hide the `On`/`Off` state, or `showEffort: false` to hide the effort level. If both are true the two parts are joined with `·`; if only one is shown, no separator is rendered.
+
+**Display:** `✦ On · xhigh` (both shown) &#8226; `✦ On` (enabled only) &#8226; `✦ xhigh` (effort only)
+
+**Symbols:** `✦` Thinking (unicode) &#8226; `T` Thinking (text)
+
+</details>
+
+<details>
+<summary><strong>Cache Timer</strong> - Shows time since last turn, tracking Claude's 5-minute prompt cache TTL</summary>
+
+Opt-in (`enabled: false` by default).
+
+```json
+"cacheTimer": {
+  "enabled": true
+}
+```
+
+**Display:** `◴ 3:42` (m:ss under 5m) &#8226; `◴ 17m` (5–59m) &#8226; `◴ 1h+` (1 hour or more)
+
+**Color tiers:** healthy green (0–3m) → yellow warn (3–5m) → red critical (5m+). Hidden when `transcript_path` is unavailable.
+
+**Anchor:** elapsed time is measured from the last user message in the transcript (matches Anthropic's cache TTL anchor), falling back to the transcript file mtime if JSONL parsing fails.
+
+**TUI:** also available in grid templates via `{cacheTimer}`, `{cacheTimer.icon}`, and `{cacheTimer.value}`.
+
+**Symbols:** `◴` Cache timer (unicode) &#8226; `C!` Cache timer (text)
+
+> **Note:** `cacheTimer` only updates when Claude Code re-runs the statusline. Set `refreshInterval` in your Claude Code `~/.claude/settings.json` `statusLine` block so the elapsed time ticks while you're idle — otherwise the timer freezes between events:
+> ```json
+> {
+>   "statusLine": {
+>     "type": "command",
+>     "command": "npx -y @owloops/claude-powerline@latest",
+>     "refreshInterval": 10
+>   }
+> }
+> ```
+> `refreshInterval` is in seconds (min 1). `10` keeps the displayed value within ~10s of reality.
+
+</details>
+
+<details>
 <summary><strong>Tmux</strong> - Shows tmux session name and window info when in tmux</summary>
 
 ```json
@@ -461,8 +533,24 @@ Hidden when the variable is unset or empty.
 - `amount`: Budget limit (required for percentage display)
 - `type`: Budget type - `cost` (USD) | `tokens` (for token-based limits)
 - `warningThreshold`: Warning threshold percentage (default: 80)
+- `showPercentage`: Show the `N%` suffix (default: `true`)
+- `showValue`: Show the base cost/token value (default: `true`)
 
 **Indicators:** `25%` Normal &#8226; `+75%` Moderate (50-79%) &#8226; `!85%` Warning (80%+)
+
+**Display toggles.** For `session` and `today`, you can hide the percentage suffix, the base value, or both:
+
+```json
+"budget": {
+  "today": { "amount": 50, "showPercentage": false }
+}
+```
+
+- `showPercentage: false` hides the `N%` suffix while keeping the budget configured (e.g. for warning thresholds).
+- `showValue: false` renders only the percentage (e.g. `◱ 15%`).
+- Both `false` hides the segment entirely.
+
+A visible effect requires `amount > 0` AND a computable percentage (e.g. when `type: "tokens"`, tokens must be present). Without a budget or a computable percentage, these flags are no-ops and the segment falls back to rendering the base value. `block` accepts the same fields for config symmetry but does not render a budget suffix today, so they have no visible effect there.
 
 > [!TIP]
 > Claude's rate limits consider multiple factors beyond tokens (message count, length, attachments, model). See [Anthropic's usage documentation](https://support.anthropic.com/en/articles/11014257-about-claude-s-max-plan-usage) for details.
@@ -548,6 +636,18 @@ Segments flow naturally and wrap to new lines when they exceed the terminal widt
 
 Set to `0` for compact, `1` (default) for standard spacing.
 
+**Show Icons** - hide the leading emblem on each segment for a text-only look:
+
+```json
+{
+  "display": {
+    "showIcons": false
+  }
+}
+```
+
+Default `true`. Per-segment override via `showIcon` on any segment (e.g. `"git": { "enabled": true, "showIcon": true }`) takes precedence. Status glyphs (git `● ✓ ⚠`, ahead/behind arrows), powerline separators, and metrics sub-icons are unaffected.
+
 > [!NOTE]
 > Claude Code system messages may truncate long status lines. Use `autoWrap` or manual multi-line layouts to prevent segment cutoff.
 
@@ -574,7 +674,7 @@ Create custom themes and configure color compatibility:
 }
 ```
 
-**Color Options:** `bg` (hex, `transparent`, `none`) &#8226; `fg` (hex)
+**Color Options:** `bg` (hex, `transparent`, `none`) &#8226; `fg` (hex) &#8226; `bold` (boolean, optional, defaults to `false`)
 
 **TUI Grid Colors:** In TUI grid mode, custom colors also support bare segment names and dot-notation parts as keys. A bare segment key (e.g. `"context"`) sets the default color for the segment and all its parts. A part key (e.g. `"context.bar"`) overrides a specific part:
 
@@ -736,7 +836,7 @@ Use bare segment names to render the full pre-formatted segment:
 ```
 context  block  session  today   weekly
 git      dir    version  tmux    metrics
-activity env
+activity env    agent
 ```
 
 #### Dot-Notation Subsegments
@@ -757,6 +857,8 @@ Use `segment.part` to place individual pieces of a segment into separate cells w
 | `tmux` | `label`, `value` |
 | `dir` | `value` |
 | `env` | `prefix`, `value` |
+| `agent` | `icon`, `name` |
+| `thinking` | `icon`, `enabled`, `effort` |
 
 Example, block segment with a progress bar, mirroring the context layout:
 

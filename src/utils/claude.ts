@@ -53,6 +53,35 @@ export interface ClaudeHookData {
       resets_at: number;
     };
   };
+  worktree?: {
+    name: string;
+    path: string;
+    branch?: string;
+    original_cwd: string;
+    original_branch?: string;
+  };
+  agent?: {
+    name: string;
+  };
+  effort?: {
+    level?: string;
+  };
+  thinking?: {
+    enabled?: boolean;
+  };
+}
+
+export function getEffortLevel(hookData: ClaudeHookData): string | null {
+  const level = hookData.effort?.level;
+  if (typeof level !== "string") return null;
+  const trimmed = level.trim();
+  return trimmed ? trimmed : null;
+}
+
+export function getThinkingEnabled(hookData: ClaudeHookData): boolean | null {
+  const enabled = hookData.thinking?.enabled;
+  if (typeof enabled !== "boolean") return null;
+  return enabled;
 }
 
 export function getClaudePaths(): string[] {

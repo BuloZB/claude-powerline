@@ -16,6 +16,7 @@ import { gruvboxTheme, gruvboxAnsi256Theme, gruvboxAnsiTheme } from "./gruvbox";
 export interface SegmentColor {
   bg: string;
   fg: string;
+  bold?: boolean;
 }
 
 export interface ColorTheme {
@@ -33,38 +34,64 @@ export interface ColorTheme {
   version: SegmentColor;
   env: SegmentColor;
   weekly: SegmentColor;
+  agent: SegmentColor;
+  thinking: SegmentColor;
+  cacheTimer: SegmentColor;
 }
 
 export interface PowerlineColors {
   reset: string;
   modeBg: string;
   modeFg: string;
+  modeBold: boolean;
   gitBg: string;
   gitFg: string;
+  gitBold: boolean;
   modelBg: string;
   modelFg: string;
+  modelBold: boolean;
   sessionBg: string;
   sessionFg: string;
+  sessionBold: boolean;
   blockBg: string;
   blockFg: string;
+  blockBold: boolean;
   todayBg: string;
   todayFg: string;
+  todayBold: boolean;
   tmuxBg: string;
   tmuxFg: string;
+  tmuxBold: boolean;
   contextBg: string;
   contextFg: string;
+  contextBold: boolean;
   contextWarningBg: string;
   contextWarningFg: string;
+  contextWarningBold: boolean;
   contextCriticalBg: string;
   contextCriticalFg: string;
+  contextCriticalBold: boolean;
   metricsBg: string;
   metricsFg: string;
+  metricsBold: boolean;
   versionBg: string;
   versionFg: string;
+  versionBold: boolean;
   envBg: string;
   envFg: string;
+  envBold: boolean;
   weeklyBg: string;
   weeklyFg: string;
+  weeklyBold: boolean;
+  agentBg: string;
+  agentFg: string;
+  agentBold: boolean;
+  thinkingBg: string;
+  thinkingFg: string;
+  thinkingBold: boolean;
+  cacheTimerBg: string;
+  cacheTimerFg: string;
+  cacheTimerBold: boolean;
   partFg: Record<string, string>;
 }
 
