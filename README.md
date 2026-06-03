@@ -207,6 +207,7 @@ In `--worktree` sessions, the directory segment automatically shows the original
 
 - `type`: Display format - `cost` | `tokens` | `both` | `breakdown`
 - `costSource`: Cost calculation method - `calculated` (ccusage-style) | `official` (hook data)
+- `showUnits`: Show the trailing `tokens` unit when `type` is `tokens` or `both` (default: `true`). Set to `false` to render `§ 4.4M` instead of `§ 4.4M tokens`. Only applies to the powerline/capsule/minimal styles; the `tui` style already renders tokens without a suffix
 
 **Symbols:** `§` Session (unicode) &#8226; `S` Session (text)
 
@@ -218,13 +219,14 @@ In `--worktree` sessions, the directory segment automatically shows the original
 ```json
 "today": {
   "enabled": true,
-  "type": "cost"
+  "type": "both"
 }
 ```
 
 **Options:**
 
 - `type`: Display format - `cost` | `tokens` | `both` | `breakdown`
+- `showUnits`: Show the trailing `tokens` unit when `type` is `tokens` or `both` (default: `true`). Set to `false` to render `☉ $12.34 (4.4M)` instead of `☉ $12.34 (4.4M tokens)`. Only applies to the powerline/capsule/minimal styles; the `tui` style already renders tokens without a suffix
 
 **Symbols:** `☉` Today (unicode) &#8226; `D` Today (text)
 
@@ -441,6 +443,23 @@ Opt-in (`enabled: false` by default).
 **Color tiers:** healthy green (0–3m) → yellow warn (3–5m) → red critical (5m+). Hidden when `transcript_path` is unavailable.
 
 **Anchor:** elapsed time is measured from the last user message in the transcript (matches Anthropic's cache TTL anchor), falling back to the transcript file mtime if JSONL parsing fails.
+
+**Display modes:** `displayMode: "elapsed"` (default) shows time-since-last-turn as above. `displayMode: "remaining"` flips it to a countdown of the cache TTL — useful when you care about *how long until cold* rather than *how stale* (matches the Codex CLI status line):
+
+```json
+"cacheTimer": {
+  "enabled": true,
+  "displayMode": "remaining"
+}
+```
+
+In remaining mode the display reads `◴ 59:51` while warm and `◴ cold` once expired; color tiers invert (warn under 5m left, critical under 1m left or cold).
+
+**TTL detection:** the segment auto-detects which cache window Claude Code is using by reading the last assistant message's `usage.cache_creation` block. `ephemeral_1h_input_tokens > 0` ⇒ 1h TTL; `ephemeral_5m_input_tokens > 0` ⇒ 5-minute TTL. Falls back to 3600 if no usage data is available yet (e.g. the very first turn). Set `ttlSeconds` explicitly to override:
+
+```json
+"cacheTimer": { "enabled": true, "displayMode": "remaining", "ttlSeconds": 300 }
+```
 
 **TUI:** also available in grid templates via `{cacheTimer}`, `{cacheTimer.icon}`, and `{cacheTimer.value}`.
 

@@ -18,11 +18,13 @@ import {
   abbreviateFishStyle,
   formatCost,
   formatTokens,
+  formatTokenCount,
   formatTokenBreakdown,
   formatTimeSince,
   formatDuration,
   formatLongTimeRemaining,
   formatCacheTimerElapsed,
+  formatCacheTimerRemaining,
   collapseHome,
   minutesUntilReset,
 } from "../utils/formatters";
@@ -55,6 +57,8 @@ export interface GitSegmentConfig extends SegmentConfig {
 export interface UsageSegmentConfig extends SegmentConfig {
   type: "cost" | "tokens" | "both" | "breakdown";
   costSource?: "calculated" | "official";
+  /** Show the trailing "tokens" unit on token counts. Only affects `type: "tokens"` and `type: "both"` (default: true). Inert in the `tui` display style, which never renders the suffix. */
+  showUnits?: boolean;
 }
 
 export interface TmuxSegmentConfig extends SegmentConfig {}
@@ -96,6 +100,8 @@ export interface BlockSegmentConfig extends SegmentConfig {
 
 export interface TodaySegmentConfig extends SegmentConfig {
   type: "cost" | "tokens" | "both" | "breakdown";
+  /** Show the trailing "tokens" unit on token counts. Only affects `type: "tokens"` and `type: "both"` (default: true). Inert in the `tui` display style, which never renders the suffix. */
+  showUnits?: boolean;
 }
 
 export interface VersionSegmentConfig extends SegmentConfig {}
@@ -122,7 +128,10 @@ export interface ThinkingSegmentConfig extends SegmentConfig {
   showEffort?: boolean;
 }
 
-export interface CacheTimerSegmentConfig extends SegmentConfig {}
+export interface CacheTimerSegmentConfig extends SegmentConfig {
+  displayMode?: "elapsed" | "remaining";
+  ttlSeconds?: number;
+}
 
 export type AnySegmentConfig =
   | SegmentConfig
@@ -393,6 +402,7 @@ export class SegmentRenderer {
       usageInfo.session.tokenBreakdown,
       type,
       sessionBudget,
+      config?.showUnits ?? true,
     );
 
     if (formattedUsage === null) return null;
@@ -740,6 +750,7 @@ export class SegmentRenderer {
       todayInfo.tokenBreakdown,
       type,
       todayBudget,
+      config?.showUnits ?? true,
     );
 
     if (formattedUsage === null) return null;
@@ -776,14 +787,18 @@ export class SegmentRenderer {
     tokens: number | null,
     tokenBreakdown: TokenBreakdown | null,
     type: string,
+    showUnits: boolean,
   ): string {
+    const tokenStr = showUnits
+      ? formatTokens(tokens)
+      : formatTokenCount(tokens);
     switch (type) {
       case "cost":
         return formatCost(cost);
       case "tokens":
-        return formatTokens(tokens);
+        return tokenStr;
       case "both":
-        return `${formatCost(cost)} (${formatTokens(tokens)})`;
+        return `${formatCost(cost)} (${tokenStr})`;
       case "breakdown":
         return formatTokenBreakdown(tokenBreakdown);
       default:
@@ -796,7 +811,8 @@ export class SegmentRenderer {
     tokens: number | null,
     tokenBreakdown: TokenBreakdown | null,
     type: string,
-    budget?: BudgetItemConfig,
+    budget: BudgetItemConfig | undefined,
+    showUnits: boolean,
   ): string | null {
     const state = resolveBudgetDisplay(cost, tokens, budget);
     if (state.suppressAll) return null;
@@ -807,6 +823,7 @@ export class SegmentRenderer {
       tokens,
       tokenBreakdown,
       type,
+      showUnits,
     );
     return state.percentText
       ? `${baseDisplay} ${state.percentText}`
@@ -895,11 +912,28 @@ export class SegmentRenderer {
   ): SegmentData {
     const e = info.elapsedSeconds;
     const iconPrefix = this.leadingIcon(this.symbols.cache_timer, config);
-    const text = `${iconPrefix}${formatCacheTimerElapsed(e)}`;
 
     let bgColor = colors.cacheTimerBg;
     let fgColor = colors.cacheTimerFg;
     let bold = colors.cacheTimerBold;
+
+    if (config?.displayMode === "remaining") {
+      const ttl = config.ttlSeconds ?? info.detectedTtlSeconds ?? 3600;
+      const remaining = Math.max(0, ttl - e);
+      const text = `${iconPrefix}${formatCacheTimerRemaining(remaining)}`;
+      if (remaining < 60) {
+        bgColor = colors.contextCriticalBg;
+        fgColor = colors.contextCriticalFg;
+        bold = colors.contextCriticalBold;
+      } else if (remaining < 300) {
+        bgColor = colors.contextWarningBg;
+        fgColor = colors.contextWarningFg;
+        bold = colors.contextWarningBold;
+      }
+      return { text, bgColor, fgColor, bold };
+    }
+
+    const text = `${iconPrefix}${formatCacheTimerElapsed(e)}`;
     if (e >= 300) {
       bgColor = colors.contextCriticalBg;
       fgColor = colors.contextCriticalFg;

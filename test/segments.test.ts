@@ -2,7 +2,10 @@ import { BlockProvider } from "../src/segments/block";
 import { TodayProvider } from "../src/segments/today";
 import { SegmentRenderer } from "../src/segments/renderer";
 import { CacheTimerProvider } from "../src/segments/cacheTimer";
-import { formatCacheTimerElapsed } from "../src/utils/formatters";
+import {
+  formatCacheTimerElapsed,
+  formatCacheTimerRemaining,
+} from "../src/utils/formatters";
 import {
   loadEntriesFromProjects,
   type ClaudeHookData,
@@ -1112,6 +1115,203 @@ describe("Segment Time Logic", () => {
       expect(critical3600.text).toContain("1h+");
     });
 
+    it("formats remaining seconds against TTL with cold fallback", () => {
+      expect(formatCacheTimerRemaining(3600)).toBe("60:00");
+      expect(formatCacheTimerRemaining(3591)).toBe("59:51");
+      expect(formatCacheTimerRemaining(125)).toBe("2:05");
+      expect(formatCacheTimerRemaining(59)).toBe("0:59");
+      expect(formatCacheTimerRemaining(0)).toBe("cold");
+      expect(formatCacheTimerRemaining(-30)).toBe("cold");
+    });
+
+    it("autodetects TTL from assistant cache_creation usage tokens", async () => {
+      const transcriptPath = join(tempDir, "transcript-ttl-1h.jsonl");
+      const now = Date.now();
+      const content = [
+        JSON.stringify({
+          type: "user",
+          message: { role: "user" },
+          timestamp: new Date(now - 60_000).toISOString(),
+        }),
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            role: "assistant",
+            usage: {
+              cache_creation: {
+                ephemeral_1h_input_tokens: 48153,
+                ephemeral_5m_input_tokens: 0,
+              },
+            },
+          },
+          timestamp: new Date(now - 30_000).toISOString(),
+        }),
+      ].join("\n");
+      writeFileSync(transcriptPath, content);
+
+      const provider = new CacheTimerProvider();
+      const result = await provider.getCacheTimerInfo({
+        transcript_path: transcriptPath,
+      } as ClaudeHookData);
+
+      expect(result).not.toBeNull();
+      expect(result!.detectedTtlSeconds).toBe(3600);
+    });
+
+    it("autodetects 5-minute TTL when only ephemeral_5m_input_tokens is set", async () => {
+      const transcriptPath = join(tempDir, "transcript-ttl-5m.jsonl");
+      const now = Date.now();
+      const content = [
+        JSON.stringify({
+          type: "user",
+          message: { role: "user" },
+          timestamp: new Date(now - 60_000).toISOString(),
+        }),
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            role: "assistant",
+            usage: {
+              cache_creation: {
+                ephemeral_1h_input_tokens: 0,
+                ephemeral_5m_input_tokens: 1200,
+              },
+            },
+          },
+          timestamp: new Date(now - 30_000).toISOString(),
+        }),
+      ].join("\n");
+      writeFileSync(transcriptPath, content);
+
+      const provider = new CacheTimerProvider();
+      const result = await provider.getCacheTimerInfo({
+        transcript_path: transcriptPath,
+      } as ClaudeHookData);
+
+      expect(result).not.toBeNull();
+      expect(result!.detectedTtlSeconds).toBe(300);
+    });
+
+    it("omits detectedTtlSeconds when no cache_creation usage is recorded", async () => {
+      const transcriptPath = join(tempDir, "transcript-no-usage.jsonl");
+      const now = Date.now();
+      const content = [
+        JSON.stringify({
+          type: "user",
+          message: { role: "user" },
+          timestamp: new Date(now - 60_000).toISOString(),
+        }),
+        JSON.stringify({
+          type: "assistant",
+          message: { role: "assistant" },
+          timestamp: new Date(now - 30_000).toISOString(),
+        }),
+      ].join("\n");
+      writeFileSync(transcriptPath, content);
+
+      const provider = new CacheTimerProvider();
+      const result = await provider.getCacheTimerInfo({
+        transcript_path: transcriptPath,
+      } as ClaudeHookData);
+
+      expect(result).not.toBeNull();
+      expect(result!.detectedTtlSeconds).toBeUndefined();
+    });
+
+    it("renders remaining mode using detected TTL when no explicit ttlSeconds is set", () => {
+      const config = { theme: "dark", display: { style: "minimal" } } as any;
+      const symbols = { cache_timer: "◴" } as any;
+      const colors = {
+        cacheTimerBg: "#1f3a1f",
+        cacheTimerFg: "#90ee90",
+        cacheTimerBold: false,
+        contextWarningBg: "#92400e",
+        contextWarningFg: "#fbbf24",
+        contextWarningBold: false,
+        contextCriticalBg: "#991b1b",
+        contextCriticalFg: "#fca5a5",
+        contextCriticalBold: false,
+      } as any;
+      const renderer = new SegmentRenderer(config, symbols);
+
+      const detected1h = renderer.renderCacheTimer(
+        { elapsedSeconds: 30, detectedTtlSeconds: 3600 },
+        colors,
+        { displayMode: "remaining" } as any,
+      );
+      expect(detected1h.text).toContain("59:30");
+
+      const detected5m = renderer.renderCacheTimer(
+        { elapsedSeconds: 30, detectedTtlSeconds: 300 },
+        colors,
+        { displayMode: "remaining" } as any,
+      );
+      expect(detected5m.text).toContain("4:30");
+
+      const explicitOverride = renderer.renderCacheTimer(
+        { elapsedSeconds: 120, detectedTtlSeconds: 3600 },
+        colors,
+        { displayMode: "remaining", ttlSeconds: 60 } as any,
+      );
+      expect(explicitOverride.text).toContain("cold");
+      expect(explicitOverride.bgColor).toBe(colors.contextCriticalBg);
+    });
+
+    it("renders remaining mode with critical/warn thresholds and TTL override", () => {
+      const config = { theme: "dark", display: { style: "minimal" } } as any;
+      const symbols = { cache_timer: "◴" } as any;
+      const colors = {
+        cacheTimerBg: "#1f3a1f",
+        cacheTimerFg: "#90ee90",
+        cacheTimerBold: false,
+        contextWarningBg: "#92400e",
+        contextWarningFg: "#fbbf24",
+        contextWarningBold: false,
+        contextCriticalBg: "#991b1b",
+        contextCriticalFg: "#fca5a5",
+        contextCriticalBold: false,
+      } as any;
+      const renderer = new SegmentRenderer(config, symbols);
+
+      const fresh = renderer.renderCacheTimer(
+        { elapsedSeconds: 10 },
+        colors,
+        { displayMode: "remaining" } as any,
+      );
+      expect(fresh.text).toContain("59:50");
+      expect(fresh.bgColor).toBe(colors.cacheTimerBg);
+
+      const warn = renderer.renderCacheTimer(
+        { elapsedSeconds: 3500 },
+        colors,
+        { displayMode: "remaining" } as any,
+      );
+      expect(warn.bgColor).toBe(colors.contextWarningBg);
+
+      const critical = renderer.renderCacheTimer(
+        { elapsedSeconds: 3580 },
+        colors,
+        { displayMode: "remaining" } as any,
+      );
+      expect(critical.bgColor).toBe(colors.contextCriticalBg);
+
+      const cold = renderer.renderCacheTimer(
+        { elapsedSeconds: 7200 },
+        colors,
+        { displayMode: "remaining" } as any,
+      );
+      expect(cold.text).toContain("cold");
+      expect(cold.bgColor).toBe(colors.contextCriticalBg);
+
+      const customTtl = renderer.renderCacheTimer(
+        { elapsedSeconds: 60 },
+        colors,
+        { displayMode: "remaining", ttlSeconds: 300 } as any,
+      );
+      expect(customTtl.text).toContain("4:00");
+      expect(customTtl.bgColor).toBe(colors.contextWarningBg);
+    });
+
     it("anchors elapsed time to the last user entry in the transcript", async () => {
       const transcriptPath = join(tempDir, "transcript.jsonl");
       const now = Date.now();
@@ -1325,6 +1525,157 @@ describe("Segment Time Logic", () => {
           showPercentage: false,
         }),
       ).toBeNull();
+    });
+  });
+
+  describe("Token unit toggle (session / today showUnits)", () => {
+    const sessionSymbols = { session_cost: "§" } as any;
+    const todaySymbols = { today_cost: "☉" } as any;
+    const sessionColors = {
+      sessionBg: "",
+      sessionFg: "",
+      sessionBold: false,
+    } as any;
+    const todayColors = {
+      todayBg: "",
+      todayFg: "",
+      todayBold: false,
+    } as any;
+    const baseConfig = {
+      theme: "dark",
+      display: { style: "minimal", showIcons: false, lines: [] },
+    } as any;
+
+    function renderSessionWith(type: string, showUnits?: boolean) {
+      const renderer = new SegmentRenderer(baseConfig, sessionSymbols);
+      const usageInfo = {
+        session: {
+          cost: 12.34,
+          tokens: 4_400_000,
+          calculatedCost: 12.34,
+          officialCost: null,
+          tokenBreakdown: null,
+        },
+      } as any;
+      return renderer.renderSession(usageInfo, sessionColors, {
+        enabled: true,
+        type,
+        showUnits,
+      } as any);
+    }
+
+    function renderTodayWith(type: string, showUnits?: boolean) {
+      const renderer = new SegmentRenderer(baseConfig, todaySymbols);
+      const todayInfo = {
+        cost: 12.34,
+        tokens: 4_400_000,
+        tokenBreakdown: {
+          input: 1_000,
+          output: 2_000,
+          cacheCreation: 0,
+          cacheRead: 500,
+        },
+        date: "2026-04-24",
+      } as any;
+      return renderer.renderToday(todayInfo, todayColors, {
+        enabled: true,
+        type,
+        showUnits,
+      } as any);
+    }
+
+    it("session type:tokens keeps the ' tokens' suffix by default", () => {
+      expect(renderSessionWith("tokens", undefined)!.text).toBe("4.4M tokens");
+      expect(renderSessionWith("tokens", true)!.text).toBe("4.4M tokens");
+    });
+
+    it("session type:tokens drops the ' tokens' suffix when showUnits is false", () => {
+      expect(renderSessionWith("tokens", false)!.text).toBe("4.4M");
+    });
+
+    it("session type:both drops the suffix inside the parentheses when showUnits is false", () => {
+      expect(renderSessionWith("both", false)!.text).toBe("$12.34 (4.4M)");
+      expect(renderSessionWith("both", true)!.text).toBe(
+        "$12.34 (4.4M tokens)",
+      );
+    });
+
+    it("today type:tokens drops the ' tokens' suffix when showUnits is false", () => {
+      expect(renderTodayWith("tokens", false)!.text).toBe("4.4M");
+      expect(renderTodayWith("tokens", true)!.text).toBe("4.4M tokens");
+    });
+
+    it("today type:both drops the suffix inside the parentheses when showUnits is false", () => {
+      expect(renderTodayWith("both", false)!.text).toBe("$12.34 (4.4M)");
+      expect(renderTodayWith("both", true)!.text).toBe("$12.34 (4.4M tokens)");
+    });
+
+    it("today type:breakdown ignores showUnits (no 'tokens' suffix to drop)", () => {
+      const expected = "1.0K in + 2.0K out + 500 cached";
+      expect(renderTodayWith("breakdown", true)!.text).toBe(expected);
+      expect(renderTodayWith("breakdown", false)!.text).toBe(expected);
+    });
+
+    it("today type:cost is unaffected by showUnits", () => {
+      expect(renderTodayWith("cost", false)!.text).toBe("$12.34");
+      expect(renderTodayWith("cost", true)!.text).toBe("$12.34");
+    });
+
+    it("session type:tokens with zero tokens drops 'tokens' when showUnits is false", () => {
+      const renderer = new SegmentRenderer(baseConfig, sessionSymbols);
+      const usageInfo = {
+        session: {
+          cost: 0,
+          tokens: 0,
+          calculatedCost: 0,
+          officialCost: null,
+          tokenBreakdown: null,
+        },
+      } as any;
+      const cfg = (showUnits: boolean) => ({
+        enabled: true,
+        type: "tokens",
+        showUnits,
+      });
+      expect(
+        renderer.renderSession(usageInfo, sessionColors, cfg(false) as any)!
+          .text,
+      ).toBe("0");
+      expect(
+        renderer.renderSession(usageInfo, sessionColors, cfg(true) as any)!
+          .text,
+      ).toBe("0 tokens");
+    });
+
+    it("session type:tokens with a budget threads showUnits through to the formatted base", () => {
+      const configWithBudget = {
+        theme: "dark",
+        display: { style: "minimal", showIcons: false, lines: [] },
+        budget: { session: { amount: 50, warningThreshold: 80 } },
+      } as any;
+      const renderer = new SegmentRenderer(configWithBudget, sessionSymbols);
+      const usageInfo = {
+        session: {
+          cost: 10,
+          tokens: 4_400_000,
+          calculatedCost: 10,
+          officialCost: null,
+          tokenBreakdown: null,
+        },
+      } as any;
+      const cfg = (showUnits: boolean) => ({
+        enabled: true,
+        type: "tokens",
+        showUnits,
+      });
+      expect(
+        renderer.renderSession(usageInfo, sessionColors, cfg(false) as any)!
+          .text,
+      ).toBe("4.4M 20%");
+      expect(
+        renderer.renderSession(usageInfo, sessionColors, cfg(true) as any)!
+          .text,
+      ).toBe("4.4M tokens 20%");
     });
   });
 });
