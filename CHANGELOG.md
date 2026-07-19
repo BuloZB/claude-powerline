@@ -1,3 +1,17 @@
+# [1.28.0](https://github.com/Owloops/claude-powerline/compare/v1.27.1...v1.28.0) (2026-07-14)
+
+
+### Features
+
+* **models:** prettify Fable and Mythos model names ([d71e236](https://github.com/Owloops/claude-powerline/commit/d71e2362a07f79a9e25cc7f4da81d4c3ec159579))
+
+## [1.27.1](https://github.com/Owloops/claude-powerline/compare/v1.27.0...v1.27.1) (2026-07-11)
+
+
+### Bug Fixes
+
+* **tui:** honor cache timer remaining mode ([d7c68cf](https://github.com/Owloops/claude-powerline/commit/d7c68cf1a68fe79349e9a3900446820878ca669b))
+
 # [1.27.0](https://github.com/Owloops/claude-powerline/compare/v1.26.0...v1.27.0) (2026-05-25)
 
 

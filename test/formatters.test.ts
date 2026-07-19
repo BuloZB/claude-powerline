@@ -49,7 +49,6 @@ describe("formatModelName", () => {
         "Sonnet 3",
       );
     });
-
   });
 
   describe("GCP Vertex AI models", () => {
@@ -82,6 +81,19 @@ describe("formatModelName", () => {
       expect(formatModelName("azure_ai/claude-haiku-4-5")).toBe("Haiku 4.5");
       expect(formatModelName("azure_ai/claude-opus-4-1")).toBe("Opus 4.1");
       expect(formatModelName("azure_ai/claude-sonnet-4-5")).toBe("Sonnet 4.5");
+    });
+  });
+
+  describe("Fable and Mythos models", () => {
+    it("should parse Fable and Mythos API model IDs", () => {
+      expect(formatModelName("claude-fable-5")).toBe("Fable 5");
+      expect(formatModelName("claude-mythos-5")).toBe("Mythos 5");
+    });
+
+    it("should parse Fable and Mythos gateway model IDs", () => {
+      expect(formatModelName("anthropic.claude-fable-5")).toBe("Fable 5");
+      expect(formatModelName("us.anthropic.claude-mythos-5")).toBe("Mythos 5");
+      expect(formatModelName("vertex_ai/claude-fable-5")).toBe("Fable 5");
     });
   });
 
