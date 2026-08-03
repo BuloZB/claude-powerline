@@ -156,6 +156,7 @@ In `--worktree` sessions, the directory segment automatically shows the original
   "showTag": false,
   "showTimeSinceCommit": false,
   "showStashCount": false,
+  "showAheadBehind": true,
   "showUpstream": false,
   "showRepoName": false
 }
@@ -169,13 +170,17 @@ In `--worktree` sessions, the directory segment automatically shows the original
 - `showTag`: Show nearest tag
 - `showTimeSinceCommit`: Show time since last commit
 - `showStashCount`: Show stash count
-- `showUpstream`: Show upstream branch
+- `showAheadBehind`: Show ahead/behind arrows (default `true`)
+- `showUpstream`: Show the upstream branch name, e.g. `→origin/main`
 - `showRepoName`: Show repository name
+- `showWorktree`: Show the worktree indicator (⧉) when the current directory belongs to a linked git worktree. Defaults to whatever `showRepoName` is, so set it explicitly to get the indicator on its own — or to `false` to suppress it while still showing the repo name
+
+The two upstream options are independent. `showUpstream` controls the branch name only, `showAheadBehind` controls the `↑`/`↓` arrows. The default (`showUpstream: false`) already gives you arrows without the name; to drop the arrows too, set `showAheadBehind: false`.
 
 **Symbols:**
 
-- Unicode: `⎇` Branch &#8226; `♯` SHA &#8226; `⌂` Tag &#8226; `⧇` Stash &#8226; `✓` Clean &#8226; `●` Dirty &#8226; `⚠` Conflicts &#8226; `↑3` Ahead &#8226; `↓2` Behind &#8226; `(+1 ~2 ?3)` Staged/Unstaged/Untracked
-- Text: `~` Branch &#8226; `#` SHA &#8226; `T` Tag &#8226; `S` Stash &#8226; `=` Clean &#8226; `*` Dirty &#8226; `!` Conflicts &#8226; `^3` Ahead &#8226; `v2` Behind &#8226; `(+1 ~2 ?3)` Staged/Unstaged/Untracked
+- Unicode: `⎇` Branch &#8226; `♯` SHA &#8226; `⌂` Tag &#8226; `⧇` Stash &#8226; `✓` Clean &#8226; `●` Dirty &#8226; `⚠` Conflicts &#8226; `↑3` Ahead &#8226; `↓2` Behind &#8226; `⧉` Worktree &#8226; `(+1 ~2 ?3)` Staged/Unstaged/Untracked
+- Text: `~` Branch &#8226; `#` SHA &#8226; `T` Tag &#8226; `S` Stash &#8226; `=` Clean &#8226; `*` Dirty &#8226; `!` Conflicts &#8226; `^3` Ahead &#8226; `v2` Behind &#8226; `W` Worktree &#8226; `(+1 ~2 ?3)` Staged/Unstaged/Untracked
 
 </details>
 
