@@ -1,10 +1,12 @@
-import type { PowerlineConfig } from "../config/loader";
+import type { LineConfig, PowerlineConfig } from "../config/loader";
 import type { PowerlineColors } from "../themes";
 import type {
   TuiData,
   SymbolSet,
   BoxChars,
   RenderCtx,
+  SegmentName,
+  SegmentParts,
   SegmentTemplate,
   JustifyValue,
   TuiTitleConfig,
@@ -26,9 +28,18 @@ import {
   formatCacheTimerRemaining,
 } from "../utils/formatters";
 import { resolveBudgetDisplay } from "../utils/budget";
-import type { CacheTimerSegmentConfig } from "../segments/renderer";
+import type {
+  CacheTimerSegmentConfig,
+  OutputStyleSegmentConfig,
+  UsageSegmentConfig,
+} from "../segments/renderer";
+import { segmentPartNames } from "./types";
 import { colorize, truncateAnsi } from "./primitives";
-import { getEffortLevel, getThinkingEnabled } from "../utils/claude";
+import {
+  getEffortLevel,
+  getOutputStyleName,
+  getThinkingEnabled,
+} from "../utils/claude";
 import { resolveIconVisibility } from "../utils/icon-visibility";
 
 export function resolveTitleToken(
@@ -154,7 +165,7 @@ export function formatContextParts(
   data: TuiData,
   sym: SymbolSet,
   iconVisible = true,
-): Record<string, string> {
+): SegmentParts<"context"> {
   if (!data.contextInfo)
     return { icon: "", label: "context", bar: "", pct: "", tokens: "" };
 
@@ -460,6 +471,28 @@ export function collectFooterParts(
     }
   }
 
+  const outputStyleEnabled = config.display.lines.some(
+    (line) => line.segments.outputStyle?.enabled,
+  );
+  if (outputStyleEnabled) {
+    const outputStyleText = formatOutputStyleSegment(
+      data,
+      sym,
+      getOutputStyleConfig(config),
+      resolveIconVisibility(config, "outputStyle"),
+    );
+    if (outputStyleText) {
+      parts.push(
+        colorize(
+          outputStyleText,
+          colors.outputStyleFg,
+          reset,
+          colors.outputStyleBold,
+        ),
+      );
+    }
+  }
+
   if (data.tmuxSessionId) {
     parts.push(
       colorize(
@@ -537,7 +570,7 @@ export function formatBlockParts(
   sym: SymbolSet,
   _config: PowerlineConfig,
   iconVisible = true,
-): Record<string, string> {
+): SegmentParts<"block"> {
   const value = `${Math.round(blockInfo.nativeUtilization)}%`;
   const time = formatTimeRemaining(blockInfo.timeRemaining);
 
@@ -568,7 +601,7 @@ export function formatWeeklyParts(
   sevenDay: { used_percentage: number; resets_at: number },
   sym: SymbolSet,
   iconVisible = true,
-): Record<string, string> {
+): SegmentParts<"weekly"> {
   const pct = `${Math.round(sevenDay.used_percentage)}%`;
   const time = formatLongTimeRemaining(minutesUntilReset(sevenDay.resets_at));
   return {
@@ -591,14 +624,43 @@ export function formatWeeklySegment(
   return text;
 }
 
+/** Find a segment's config across lines: enabled entry first, then any configured entry. */
+function findConfiguredSegment<K extends keyof LineConfig["segments"]>(
+  config: PowerlineConfig,
+  key: K,
+): LineConfig["segments"][K] {
+  const configured = config.display.lines.map((line) => line.segments[key]);
+  return (
+    configured.find((segment) => segment?.enabled) ??
+    configured.find((segment) => segment !== undefined)
+  );
+}
+
+export function getSessionSegmentConfig(
+  config: PowerlineConfig,
+): UsageSegmentConfig | undefined {
+  return findConfiguredSegment(config, "session");
+}
+
+export function resolveSessionCost(
+  session: (TuiData["usageInfo"] & {})["session"],
+  config: PowerlineConfig,
+): number | null {
+  const costSource = getSessionSegmentConfig(config)?.costSource;
+  if (costSource === "calculated") return session.calculatedCost;
+  if (costSource === "official") return session.officialCost;
+  return session.cost;
+}
+
 export function formatSessionParts(
   usageInfo: TuiData["usageInfo"] & {},
   sym: SymbolSet,
   config: PowerlineConfig,
   iconVisible = true,
-): Record<string, string> {
+): SegmentParts<"session"> {
+  const sessionCost = resolveSessionCost(usageInfo.session, config);
   const state = resolveBudgetDisplay(
-    usageInfo.session.cost,
+    sessionCost,
     usageInfo.session.tokens,
     config.budget?.session,
   );
@@ -616,7 +678,7 @@ export function formatSessionParts(
   return {
     icon: iconVisible ? sym.session_cost : "",
     label: state.percentageOnly ? "" : "session",
-    cost: state.showBase ? formatCost(usageInfo.session.cost) : "",
+    cost: state.showBase ? formatCost(sessionCost) : "",
     tokens: tokenStr,
     budget: state.percentText ? ` ${state.percentText}` : "",
   };
@@ -628,8 +690,9 @@ export function formatSessionSegment(
   config: PowerlineConfig,
   iconVisible = true,
 ): string {
+  const sessionCost = resolveSessionCost(usageInfo.session, config);
   const state = resolveBudgetDisplay(
-    usageInfo.session.cost,
+    sessionCost,
     usageInfo.session.tokens,
     config.budget?.session,
   );
@@ -641,7 +704,7 @@ export function formatSessionSegment(
     return icon ? `${icon} ${state.percentText}` : state.percentText;
   }
 
-  const costStr = formatCost(usageInfo.session.cost);
+  const costStr = formatCost(sessionCost);
   const sessionTokens = usageInfo.session.tokens;
   let text = icon ? `${icon} ${costStr}` : costStr;
   if (sessionTokens !== null && sessionTokens > 0) {
@@ -656,7 +719,7 @@ export function formatTodayParts(
   sym: SymbolSet,
   config: PowerlineConfig,
   iconVisible = true,
-): Record<string, string> {
+): SegmentParts<"today"> {
   const state = resolveBudgetDisplay(
     todayInfo.cost,
     todayInfo.tokens,
@@ -703,8 +766,8 @@ export function formatTodaySegment(
 function formatMetricsParts(
   data: TuiData,
   sym: SymbolSet,
-): Record<string, string> {
-  const empty = {
+): SegmentParts<"metrics"> {
+  const empty: SegmentParts<"metrics"> = {
     response: "",
     responseIcon: "",
     responseVal: "",
@@ -776,8 +839,8 @@ function formatMetricsSegment(data: TuiData, sym: SymbolSet): string {
 function formatActivityParts(
   data: TuiData,
   sym: SymbolSet,
-): Record<string, string> {
-  const empty = {
+): SegmentParts<"activity"> {
+  const empty: SegmentParts<"activity"> = {
     icon: "",
     duration: "",
     durationIcon: "",
@@ -820,7 +883,7 @@ function formatGitParts(
   data: TuiData,
   sym: SymbolSet,
   iconVisible = true,
-): Record<string, string> {
+): SegmentParts<"git"> {
   if (!data.gitInfo)
     return {
       icon: "",
@@ -907,7 +970,7 @@ function formatDirParts(
   config: PowerlineConfig,
   sym: SymbolSet,
   iconVisible = true,
-): Record<string, string> {
+): SegmentParts<"dir"> {
   return {
     icon: iconVisible ? sym.dir : "",
     value: formatDirValue(data, config),
@@ -933,7 +996,7 @@ function formatVersionParts(
   data: TuiData,
   sym: SymbolSet,
   iconVisible = true,
-): Record<string, string> {
+): SegmentParts<"version"> {
   if (!data.hookData.version) return { icon: "", value: "" };
   return {
     icon: iconVisible ? sym.version : "",
@@ -955,7 +1018,7 @@ function formatAgentParts(
   data: TuiData,
   sym: SymbolSet,
   iconVisible = true,
-): Record<string, string> {
+): SegmentParts<"agent"> {
   const raw = data.hookData.agent?.name;
   if (typeof raw !== "string") return { icon: "", name: "" };
   const name = raw.trim();
@@ -981,6 +1044,54 @@ function formatAgentSegment(
   return parts.icon ? `${parts.icon} ${body}` : body;
 }
 
+function formatOutputStyleParts(
+  data: TuiData,
+  sym: SymbolSet,
+  outputStyleConfig: OutputStyleSegmentConfig | undefined,
+  iconVisible = true,
+): SegmentParts<"outputStyle"> {
+  const name = getOutputStyleName(data.hookData);
+  if (!name) return { icon: "", name: "" };
+  if (outputStyleConfig?.hideDefault && name.toLowerCase() === "default") {
+    return { icon: "", name: "" };
+  }
+  return {
+    icon: iconVisible ? sym.output_style : "",
+    name,
+  };
+}
+
+function formatOutputStyleSegment(
+  data: TuiData,
+  sym: SymbolSet,
+  outputStyleConfig: OutputStyleSegmentConfig | undefined,
+  iconVisible = true,
+): string {
+  const parts = formatOutputStyleParts(
+    data,
+    sym,
+    outputStyleConfig,
+    iconVisible,
+  );
+  if (!parts.name) return "";
+  const body = outputStyleConfig?.showLabel
+    ? `style: ${parts.name}`
+    : parts.name;
+  return parts.icon ? `${parts.icon} ${body}` : body;
+}
+
+/**
+ * The enabled entry wins, so the hardcoded footer keeps the options of the
+ * line it renders. The fallback to any configured entry exists for grid mode,
+ * where cell placement decides visibility and `enabled` is often left false —
+ * without it, `showLabel` and `hideDefault` would be silently ignored there.
+ */
+function getOutputStyleConfig(
+  config: PowerlineConfig,
+): OutputStyleSegmentConfig | undefined {
+  return findConfiguredSegment(config, "outputStyle");
+}
+
 function buildThinkingBody(
   data: TuiData,
   thinkingConfig: { showEnabled?: boolean; showEffort?: boolean } | undefined,
@@ -1003,7 +1114,7 @@ function formatThinkingParts(
   sym: SymbolSet,
   thinkingConfig: { showEnabled?: boolean; showEffort?: boolean } | undefined,
   iconVisible = true,
-): Record<string, string> {
+): SegmentParts<"thinking"> {
   const showEnabled = thinkingConfig?.showEnabled ?? true;
   const showEffort = thinkingConfig?.showEffort ?? true;
   const enabled = showEnabled ? getThinkingEnabled(data.hookData) : null;
@@ -1060,7 +1171,7 @@ function formatCacheTimerParts(
   sym: SymbolSet,
   config?: CacheTimerSegmentConfig,
   iconVisible = true,
-): Record<string, string> {
+): SegmentParts<"cacheTimer"> {
   if (!data.cacheTimerInfo) return { icon: "", value: "" };
   return {
     icon: iconVisible ? sym.cache_timer : "",
@@ -1102,7 +1213,7 @@ function cacheTimerStyle(
   }
   return { fg: colors.cacheTimerFg, bold: colors.cacheTimerBold };
 }
-function formatTmuxParts(data: TuiData): Record<string, string> {
+function formatTmuxParts(data: TuiData): SegmentParts<"tmux"> {
   if (!data.tmuxSessionId) return { label: "", value: "" };
   return { label: "tmux", value: data.tmuxSessionId };
 }
@@ -1113,7 +1224,7 @@ function formatTmuxSegment(data: TuiData): string {
   return `${parts.label}:${parts.value}`;
 }
 
-function formatEnvParts(config: PowerlineConfig): Record<string, string> {
+function formatEnvParts(config: PowerlineConfig): SegmentParts<"env"> {
   const envConfig = config.display.lines
     .map((line) => line.segments.env)
     .find((env) => env?.enabled);
@@ -1131,16 +1242,22 @@ function formatEnvSegment(config: PowerlineConfig): string {
   return parts.prefix ? `${parts.prefix}:${parts.value}` : parts.value;
 }
 
-function addParts(
+function addParts<S extends SegmentName>(
   result: Record<string, string>,
-  segment: string,
-  parts: Record<string, string>,
+  segment: S,
+  parts: SegmentParts<S>,
   color: string,
   reset: string,
   partFg?: Record<string, string>,
   bold = false,
 ): void {
-  for (const [key, value] of Object.entries(parts)) {
+  // Driven by the registry, not by the formatter's own keys, so a part that
+  // config validation would reject can never reach the token namespace.
+  // The lookup widening is safe because `parts` is keyed by this same list;
+  // TypeScript just cannot correlate the two while `S` is still generic.
+  const values = parts as Record<string, string | undefined>;
+  for (const key of segmentPartNames(segment)) {
+    const value = values[key];
     const partKey = `${segment}.${key}`;
     const partColor = partFg?.[partKey] ?? partFg?.[segment] ?? color;
     result[partKey] = value ? colorize(value, partColor, reset, bold) : "";
@@ -1237,6 +1354,7 @@ export function resolveSegments(
     agent: resolveIconVisibility(config, "agent"),
     thinking: resolveIconVisibility(config, "thinking"),
     cacheTimer: resolveIconVisibility(config, "cacheTimer"),
+    outputStyle: resolveIconVisibility(config, "outputStyle"),
   };
 
   // Model
@@ -1544,6 +1662,34 @@ export function resolveSegments(
     reset,
     pf,
     cacheTimerStyleResolved.bold,
+  );
+
+  // Output style
+  const outputStyleSegConfig = getOutputStyleConfig(config);
+  const outputStyleColor = pf?.["outputStyle"] ?? colors.outputStyleFg;
+  result.outputStyle = colorizeOrEmpty(
+    formatOutputStyleSegment(
+      data,
+      sym,
+      outputStyleSegConfig,
+      iconVisible.outputStyle,
+    ),
+    outputStyleColor,
+    colors.outputStyleBold,
+  );
+  addParts(
+    result,
+    "outputStyle",
+    formatOutputStyleParts(
+      data,
+      sym,
+      outputStyleSegConfig,
+      iconVisible.outputStyle,
+    ),
+    colors.outputStyleFg,
+    reset,
+    pf,
+    colors.outputStyleBold,
   );
 
   // Apply segment templates: resolve items and compose default value

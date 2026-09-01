@@ -56,6 +56,7 @@ const SEGMENT_NAME_LIST = [
   "agent",
   "thinking",
   "cacheTimer",
+  "outputStyle",
 ] as const;
 
 export type SegmentName = (typeof SEGMENT_NAME_LIST)[number];
@@ -64,7 +65,16 @@ export const VALID_SEGMENT_NAMES: ReadonlySet<string> = new Set<SegmentName>(
   SEGMENT_NAME_LIST,
 );
 
-export const SEGMENT_PARTS: Record<SegmentName, readonly string[]> = {
+/**
+ * Every part name a segment publishes as a `segment.part` token. This is the
+ * single source of truth: `addParts` publishes exactly these keys and
+ * `isValidSegmentRef` accepts exactly these refs, so the resolvable namespace
+ * and the validated namespace cannot disagree.
+ *
+ * Literal-typed for `SegmentParts<S>`; consumers should use `SEGMENT_PARTS`,
+ * which exposes the same value under a stable widened type.
+ */
+const SEGMENT_PART_NAMES = {
   session: ["icon", "label", "cost", "tokens", "budget"],
   block: ["icon", "label", "value", "time", "budget", "bar"],
   today: ["icon", "cost", "label", "budget"],
@@ -77,6 +87,7 @@ export const SEGMENT_PARTS: Record<SegmentName, readonly string[]> = {
     "ahead",
     "behind",
     "working",
+    "worktree",
     "head",
   ],
   context: ["icon", "label", "bar", "pct", "tokens"],
@@ -111,7 +122,27 @@ export const SEGMENT_PARTS: Record<SegmentName, readonly string[]> = {
   agent: ["icon", "name"],
   thinking: ["icon", "enabled", "effort"],
   cacheTimer: ["icon", "value"],
-} as const;
+  outputStyle: ["icon", "name"],
+} as const satisfies Record<SegmentName, readonly string[]>;
+
+export const SEGMENT_PARTS: Record<SegmentName, readonly string[]> =
+  SEGMENT_PART_NAMES;
+
+export function segmentPartNames<S extends SegmentName>(
+  segment: S,
+): (typeof SEGMENT_PART_NAMES)[S] {
+  return SEGMENT_PART_NAMES[segment];
+}
+
+/**
+ * The part names a segment's formatter must produce. Annotating every
+ * `format*Parts` return with this makes the compiler reject a formatter that
+ * omits a listed part, or that adds an unlisted one in an object literal.
+ */
+export type SegmentParts<S extends SegmentName> = Record<
+  (typeof SEGMENT_PART_NAMES)[S][number],
+  string
+>;
 
 export function isValidSegmentRef(name: string): boolean {
   if (name === "." || name === "---") return true;

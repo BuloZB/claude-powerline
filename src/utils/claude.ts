@@ -40,7 +40,7 @@ export interface ClaudeHookData {
       output_tokens: number;
       cache_creation_input_tokens: number;
       cache_read_input_tokens: number;
-    };
+    } | null;
   };
   exceeds_200k_tokens?: boolean;
   rate_limits?: {
@@ -82,6 +82,13 @@ export function getThinkingEnabled(hookData: ClaudeHookData): boolean | null {
   const enabled = hookData.thinking?.enabled;
   if (typeof enabled !== "boolean") return null;
   return enabled;
+}
+
+export function getOutputStyleName(hookData: ClaudeHookData): string | null {
+  const name = hookData.output_style?.name;
+  if (typeof name !== "string") return null;
+  const trimmed = name.trim();
+  return trimmed ? trimmed : null;
 }
 
 export function getClaudePaths(): string[] {
@@ -325,6 +332,22 @@ export function createUniqueHash(entry: ParsedEntry): string | null {
   return `${messageId}:${requestId}`;
 }
 
+export function deduplicateEntries(entries: ParsedEntry[]): ParsedEntry[] {
+  const processedHashes = new Set<string>();
+  const deduplicated: ParsedEntry[] = [];
+  for (const entry of entries) {
+    const uniqueHash = createUniqueHash(entry);
+    if (uniqueHash && processedHashes.has(uniqueHash)) {
+      continue;
+    }
+    if (uniqueHash) {
+      processedHashes.add(uniqueHash);
+    }
+    deduplicated.push(entry);
+  }
+  return deduplicated;
+}
+
 const STREAMING_THRESHOLD_BYTES = 1024 * 1024;
 
 export async function parseJsonlFile(filePath: string): Promise<ParsedEntry[]> {
@@ -497,7 +520,6 @@ export async function loadEntriesFromProjects(
 ): Promise<ParsedEntry[]> {
   const claudePaths = getClaudePaths();
   const projectPaths = await findProjectPaths(claudePaths);
-  const processedHashes = new Set<string>();
 
   const allFilesPromises = projectPaths.map((projectPath) =>
     collectProjectFiles(projectPath, fileFilter),
@@ -528,17 +550,5 @@ export async function loadEntriesFromProjects(
 
   entries.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
-  const deduplicatedEntries: ParsedEntry[] = [];
-  for (const entry of entries) {
-    const uniqueHash = createUniqueHash(entry);
-    if (uniqueHash && processedHashes.has(uniqueHash)) {
-      continue;
-    }
-    if (uniqueHash) {
-      processedHashes.add(uniqueHash);
-    }
-    deduplicatedEntries.push(entry);
-  }
-
-  return deduplicatedEntries;
+  return deduplicateEntries(entries);
 }

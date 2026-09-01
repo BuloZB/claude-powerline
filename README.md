@@ -276,7 +276,14 @@ The two upstream options are independent. `showUpstream` controls the branch nam
 
 #### Model Context Limits
 
-Configure context window limits for different model types. Defaults to 200K tokens for all models.
+**You normally don't need this.** Claude Code 2.0.65+ reports the real context window
+in its status line data (`context_window.context_window_size`), and that value is used
+automatically. It already accounts for 1M-context models, the `[1m]` model suffix, the
+1M beta header, plan entitlements, and `CLAUDE_CODE_MAX_CONTEXT_TOKENS` — none of which
+can be inferred from the model name.
+
+`modelContextLimits` is only consulted when Claude Code reports no context window data
+at all, i.e. on versions older than 2.0.65.
 
 ```json
 "modelContextLimits": {
@@ -290,8 +297,6 @@ Configure context window limits for different model types. Defaults to 200K toke
 - `sonnet`: Claude Sonnet models (3.5, 4, etc.)
 - `opus`: Claude Opus models
 - `default`: Fallback for unrecognized models (200K)
-
-**Note:** Sonnet 4's 1M context window is currently in beta for tier 4+ users. Set `"sonnet": 1000000` when you have access.
 
 </details>
 
@@ -429,6 +434,29 @@ Set `showEnabled: false` to hide the `On`/`Off` state, or `showEffort: false` to
 **Display:** `✦ On · xhigh` (both shown) &#8226; `✦ On` (enabled only) &#8226; `✦ xhigh` (effort only)
 
 **Symbols:** `✦` Thinking (unicode) &#8226; `T` Thinking (text)
+
+</details>
+
+<details>
+<summary><strong>Output Style</strong> - Shows the active Claude Code output style (<code>default</code>, <code>Explanatory</code>, <code>Learning</code>, or a custom style)</summary>
+
+Opt-in (`enabled: false` by default).
+
+```json
+"outputStyle": {
+  "enabled": true,
+  "showLabel": false,
+  "hideDefault": false
+}
+```
+
+Set `showLabel: true` to prefix the name with `style: `. Set `hideDefault: true` to omit the segment while the active style is `default` (compared case-insensitively), so the segment only appears once you switch away from the default style.
+
+**Display:** `✎ Explanatory` (or `✎ style: Explanatory` with `showLabel: true`)
+
+**Symbols:** `✎` Output Style (unicode) &#8226; `OS` Output Style (text)
+
+The style name comes from Claude Code on stdin and is rendered verbatim. Older Claude Code builds do not send it — the segment is then hidden entirely rather than rendered empty.
 
 </details>
 
@@ -858,9 +886,10 @@ Here `context.bar` spans the first three columns.
 Use bare segment names to render the full pre-formatted segment:
 
 ```
-context  block  session  today   weekly
-git      dir    version  tmux    metrics
-activity env    agent
+context  block    session  today    weekly
+git      dir      model    version  tmux
+metrics  activity env      agent    thinking
+cacheTimer  outputStyle
 ```
 
 #### Dot-Notation Subsegments
@@ -869,20 +898,23 @@ Use `segment.part` to place individual pieces of a segment into separate cells w
 
 | Segment | Parts |
 |---|---|
-| `git` | `icon`, `branch`, `status`, `ahead`, `behind`, `working`, `head` |
-| `context` | `icon`, `bar`, `pct`, `tokens` |
-| `block` | `icon`, `bar`, `value`, `time`, `budget` |
-| `session` | `icon`, `cost`, `tokens`, `budget` |
+| `session` | `icon`, `label`, `cost`, `tokens`, `budget` |
+| `block` | `icon`, `label`, `value`, `time`, `budget`, `bar` |
 | `today` | `icon`, `cost`, `label`, `budget` |
-| `weekly` | `icon`, `bar`, `pct`, `time` |
+| `weekly` | `icon`, `label`, `pct`, `time`, `bar` |
+| `git` | `icon`, `headVal`, `branch`, `status`, `ahead`, `behind`, `working`, `worktree`, `head` |
+| `context` | `icon`, `label`, `bar`, `pct`, `tokens` |
 | `metrics` | `response`, `responseIcon`, `responseVal`, `lastResponse`, `lastResponseIcon`, `lastResponseVal`, `added`, `addedIcon`, `addedVal`, `removed`, `removedIcon`, `removedVal` |
-| `activity` | `duration`, `durationIcon`, `durationVal`, `messages`, `messagesIcon`, `messagesVal` |
+| `activity` | `icon`, `duration`, `durationIcon`, `durationVal`, `messages`, `messagesIcon`, `messagesVal` |
+| `model` | `icon`, `value` |
 | `version` | `icon`, `value` |
 | `tmux` | `label`, `value` |
-| `dir` | `value` |
+| `dir` | `icon`, `value` |
 | `env` | `prefix`, `value` |
 | `agent` | `icon`, `name` |
 | `thinking` | `icon`, `enabled`, `effort` |
+| `cacheTimer` | `icon`, `value` |
+| `outputStyle` | `icon`, `name` |
 
 Example, block segment with a progress bar, mirroring the context layout:
 

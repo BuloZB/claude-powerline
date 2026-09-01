@@ -1,12 +1,18 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { renderTuiPanel } from "../src/tui/renderer";
 import {
   resolveSegments,
   formatTodayParts,
   formatSessionParts,
+  formatSessionSegment,
+  getSessionSegmentConfig,
 } from "../src/tui/sections";
 import type { TuiData, BoxChars, RenderCtx } from "../src/tui/types";
+import { isValidSegmentRef, SEGMENT_PARTS } from "../src/tui/types";
 import type { PowerlineColors } from "../src/themes";
 import type { PowerlineConfig } from "../src/config/loader";
+import type { OutputStyleSegmentConfig } from "../src/segments/renderer";
 import { BOX_CHARS, SYMBOLS } from "../src/utils/constants";
 import { DEFAULT_CONFIG } from "../src/config/defaults";
 
@@ -64,6 +70,9 @@ const PLAIN_COLORS: PowerlineColors = {
   cacheTimerBg: "",
   cacheTimerFg: "",
   cacheTimerBold: false,
+  outputStyleBg: "",
+  outputStyleFg: "",
+  outputStyleBold: false,
   partFg: {},
 };
 
@@ -128,6 +137,18 @@ function makeTuiData(overrides: Partial<TuiData> = {}): TuiData {
     ...overrides,
   };
 }
+
+const mkCtx = (config: PowerlineConfig, data: TuiData): RenderCtx => ({
+  lines: [],
+  data,
+  box: BOX_CHARS,
+  contentWidth: 96,
+  innerWidth: 98,
+  sym: SYMBOLS,
+  config,
+  reset: "",
+  colors: PLAIN_COLORS,
+});
 
 describe("TUI Panel Rendering", () => {
   describe("Wide layout (80+ cols)", () => {
@@ -386,18 +407,6 @@ describe("TUI Panel Rendering", () => {
   });
 
   describe("resolveSegments showIcons handling", () => {
-    const mkCtx = (config: PowerlineConfig, data: TuiData): RenderCtx => ({
-      lines: [],
-      data,
-      box: BOX_CHARS,
-      contentWidth: 96,
-      innerWidth: 98,
-      sym: SYMBOLS,
-      config,
-      reset: "",
-      colors: PLAIN_COLORS,
-    });
-
     it("strips leading icons from segments and composite tokens while keeping metrics icons and git status glyphs", () => {
       const config: PowerlineConfig = {
         ...DEFAULT_CONFIG,
@@ -576,6 +585,248 @@ describe("TUI Panel Rendering", () => {
       expect(result["cacheTimer.value"]).toBe("59:50");
       expect(result["cacheTimer"]).toContain("59:50");
     });
+
+    it("resolveSegments exposes outputStyle sub-parts (icon, name) when data present, empty when absent", () => {
+      const config: PowerlineConfig = {
+        ...DEFAULT_CONFIG,
+        display: { ...DEFAULT_CONFIG.display, style: "tui" },
+      };
+
+      const withData = makeTuiData({
+        hookData: {
+          ...makeTuiData().hookData,
+          output_style: { name: "Explanatory" },
+        },
+      });
+      const { data: resultPresent } = resolveSegments(
+        withData,
+        mkCtx(config, withData),
+      );
+      expect(resultPresent["outputStyle.icon"]).toBe(SYMBOLS.output_style);
+      expect(resultPresent["outputStyle.name"]).toBe("Explanatory");
+      expect(resultPresent["outputStyle"]).toBe(
+        `${SYMBOLS.output_style} Explanatory`,
+      );
+
+      const absent = makeTuiData();
+      const { data: resultAbsent } = resolveSegments(
+        absent,
+        mkCtx(config, absent),
+      );
+      expect(resultAbsent["outputStyle"]).toBe("");
+      expect(resultAbsent["outputStyle.icon"]).toBe("");
+      expect(resultAbsent["outputStyle.name"]).toBe("");
+    });
+
+    it.each([true, false])(
+      "resolveSegments honors outputStyle showLabel and hideDefault whether enabled is %s, because grid cell placement controls visibility",
+      (enabled) => {
+        const configWith = (
+          segment: OutputStyleSegmentConfig,
+        ): PowerlineConfig => ({
+          ...DEFAULT_CONFIG,
+          display: {
+            ...DEFAULT_CONFIG.display,
+            style: "tui",
+            lines: [
+              {
+                segments: {
+                  ...DEFAULT_CONFIG.display.lines[0]!.segments,
+                  outputStyle: segment,
+                },
+              },
+            ],
+          },
+        });
+
+        const labelled = makeTuiData({
+          hookData: {
+            ...makeTuiData().hookData,
+            output_style: { name: "Explanatory" },
+          },
+        });
+        const { data: labelledResult } = resolveSegments(
+          labelled,
+          mkCtx(configWith({ enabled, showLabel: true }), labelled),
+        );
+        expect(labelledResult["outputStyle"]).toBe(
+          `${SYMBOLS.output_style} style: Explanatory`,
+        );
+        expect(labelledResult["outputStyle.name"]).toBe("Explanatory");
+
+        const defaultStyle = makeTuiData({
+          hookData: {
+            ...makeTuiData().hookData,
+            output_style: { name: "Default" },
+          },
+        });
+        const { data: hiddenResult } = resolveSegments(
+          defaultStyle,
+          mkCtx(configWith({ enabled, hideDefault: true }), defaultStyle),
+        );
+        expect(hiddenResult["outputStyle"]).toBe("");
+        expect(hiddenResult["outputStyle.icon"]).toBe("");
+        expect(hiddenResult["outputStyle.name"]).toBe("");
+      },
+    );
+  });
+
+  describe("outputStyle in the TUI panel", () => {
+    const styleData = (name = "Explanatory") =>
+      makeTuiData({
+        hookData: {
+          ...makeTuiData().hookData,
+          output_style: { name },
+        },
+      });
+
+    const footerConfig = (
+      segment?: OutputStyleSegmentConfig,
+    ): PowerlineConfig => ({
+      ...DEFAULT_CONFIG,
+      display: {
+        ...DEFAULT_CONFIG.display,
+        style: "tui",
+        lines: [
+          {
+            segments: {
+              ...DEFAULT_CONFIG.display.lines[0]!.segments,
+              ...(segment ? { outputStyle: segment } : {}),
+            },
+          },
+        ],
+      },
+    });
+
+    it("omits the footer entry when the segment is disabled in config", async () => {
+      const result = await renderTuiPanel(
+        styleData(),
+        BOX_CHARS,
+        "",
+        100,
+        footerConfig({ enabled: false }),
+      );
+      expect(result).not.toContain("Explanatory");
+      expect(result).not.toContain(SYMBOLS.output_style);
+    });
+
+    it("shows the footer entry when the segment is enabled in config", async () => {
+      const result = await renderTuiPanel(
+        styleData(),
+        BOX_CHARS,
+        "",
+        100,
+        footerConfig({ enabled: true }),
+      );
+      expect(result).toContain(`${SYMBOLS.output_style} Explanatory`);
+    });
+
+    it("omits the footer entry when hideDefault is set and the style is default", async () => {
+      const result = await renderTuiPanel(
+        styleData("default"),
+        BOX_CHARS,
+        "",
+        100,
+        footerConfig({ enabled: true, hideDefault: true }),
+      );
+      expect(result).not.toContain("default");
+      expect(result).not.toContain(SYMBOLS.output_style);
+    });
+
+    it("renders outputStyle.icon and outputStyle.name placed in grid cells", async () => {
+      const gridConfig: PowerlineConfig = {
+        ...DEFAULT_CONFIG,
+        display: {
+          ...DEFAULT_CONFIG.display,
+          style: "tui",
+          tui: {
+            widthReserve: 0,
+            terminalWidth: 100,
+            separator: { column: "  " },
+            breakpoints: [
+              {
+                minWidth: 0,
+                areas: ["outputStyle.icon outputStyle.name"],
+                columns: ["auto", "1fr"],
+                align: ["left", "left"],
+              },
+            ],
+          },
+        },
+      };
+
+      const result = await renderTuiPanel(
+        styleData(),
+        BOX_CHARS,
+        "",
+        100,
+        gridConfig,
+      );
+      expect(result).toContain(SYMBOLS.output_style);
+      expect(result).toContain("Explanatory");
+    });
+  });
+
+  describe("SEGMENT_PARTS registry", () => {
+    // Every optional-data segment populated, so resolveSegments publishes the
+    // full token namespace rather than the subset the default fixture covers.
+    function resolveEverything(): Record<string, string> {
+      const base = makeTuiData();
+      const data = makeTuiData({
+        hookData: {
+          ...base.hookData,
+          rate_limits: {
+            seven_day: {
+              used_percentage: 42,
+              resets_at: Math.floor(Date.now() / 1000) + 4 * 24 * 3600,
+            },
+          },
+        },
+        gitInfo: {
+          branch: "main",
+          status: "dirty",
+          ahead: 1,
+          behind: 2,
+          staged: 1,
+          unstaged: 2,
+          untracked: 3,
+          isWorktree: true,
+        },
+        cacheTimerInfo: { elapsedSeconds: 30 },
+      });
+      return resolveSegments(data, mkCtx(tuiConfig, data)).data;
+    }
+
+    it("validates every token resolveSegments publishes", () => {
+      const rejected = Object.keys(resolveEverything()).filter(
+        (token) => !isValidSegmentRef(token),
+      );
+      expect(rejected).toEqual([]);
+    });
+
+    it("lists no part that resolveSegments never publishes", () => {
+      const result = resolveEverything();
+      const orphaned = Object.entries(SEGMENT_PARTS)
+        .flatMap(([segment, parts]) =>
+          parts.map((part) => `${segment}.${part}`),
+        )
+        .filter((ref) => !(ref in result));
+      expect(orphaned).toEqual([]);
+    });
+
+    it("matches the dot-notation table documented in the README", () => {
+      const readme = readFileSync(join(__dirname, "..", "README.md"), "utf8");
+      const documented = Object.fromEntries(
+        Array.from(
+          readme.matchAll(/^\| `(\w+)` \| ((?:`\w+`(?:, )?)+) \|$/gm),
+          ([, segment, parts]) => [
+            segment,
+            parts!.split(", ").map((part) => part.slice(1, -1)),
+          ],
+        ),
+      );
+      expect(documented).toEqual(SEGMENT_PARTS);
+    });
   });
 
   describe("Budget display toggles (TUI formatTodayParts / formatSessionParts)", () => {
@@ -720,6 +971,101 @@ describe("TUI Panel Rendering", () => {
         cost: "",
         tokens: "",
         budget: "",
+      });
+    });
+  });
+
+  describe("Session costSource (TUI)", () => {
+    const officialConfig: PowerlineConfig = {
+      ...DEFAULT_CONFIG,
+      display: {
+        ...DEFAULT_CONFIG.display,
+        style: "tui",
+        lines: [
+          {
+            segments: {
+              ...DEFAULT_CONFIG.display.lines[0]!.segments,
+              session: { enabled: true, type: "cost", costSource: "official" },
+            },
+          },
+        ],
+      },
+      budget: {
+        session: { amount: 10, warningThreshold: 80 },
+      },
+    };
+
+    const usageInfo = {
+      session: {
+        cost: 1.25,
+        calculatedCost: 1.25,
+        officialCost: 5,
+        tokens: 100,
+        tokenBreakdown: null,
+      },
+    };
+
+    it("formatSessionParts uses officialCost for cost and budget percentage", () => {
+      const parts = formatSessionParts(
+        usageInfo as any,
+        SYMBOLS as any,
+        officialConfig,
+        true,
+      );
+      expect(parts.cost).toBe("$5.00");
+      // 5 / 10 = 50%, not 1.25 / 10 = 13%
+      expect(parts.budget).toContain("50%");
+    });
+
+    it("formatSessionSegment uses officialCost for cost and budget percentage", () => {
+      const text = formatSessionSegment(
+        usageInfo as any,
+        SYMBOLS as any,
+        officialConfig,
+        true,
+      );
+      expect(text).toContain("$5.00");
+      expect(text).toContain("50%");
+    });
+
+    it("narrow layout uses officialCost", async () => {
+      const result = await renderTuiPanel(
+        makeTuiData({ usageInfo }),
+        BOX_CHARS,
+        "",
+        40,
+        officialConfig,
+      );
+      expect(result).toContain("$5.00");
+      expect(result).not.toContain("$1.25");
+    });
+
+    it("getSessionSegmentConfig prefers the enabled entry over earlier disabled ones", () => {
+      const config: PowerlineConfig = {
+        ...officialConfig,
+        display: {
+          ...officialConfig.display,
+          lines: [
+            {
+              segments: {
+                session: {
+                  enabled: false,
+                  type: "cost",
+                  costSource: "official",
+                },
+              },
+            },
+            {
+              segments: {
+                session: { enabled: true, type: "cost" },
+              },
+            },
+          ],
+        },
+      };
+      expect(getSessionSegmentConfig(config)).toEqual({
+        enabled: true,
+        type: "cost",
       });
     });
   });
